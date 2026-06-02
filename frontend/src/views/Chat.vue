@@ -1,0 +1,383 @@
+<template>
+  <div class="chat-page page-container">
+    <el-card shadow="never" class="chat-card">
+      <!-- 顶部信息 -->
+      <div class="chat-header">
+        <div>
+          <h3>
+            <el-icon><ChatLineSquare /></el-icon>
+            {{ chatStore.currentConsultation?.chief_complaint || '新问诊' }}
+          </h3>
+          <div class="meta" v-if="chatStore.currentConsultation">
+            <el-tag size="small" :type="urgencyType(chatStore.currentConsultation.urgency_level)">
+              紧急度: {{ urgencyLabel(chatStore.currentConsultation.urgency_level) }}
+            </el-tag>
+            <el-tag v-if="chatStore.currentConsultation.recommended_department" size="small" type="success" effect="plain">
+              <el-icon><Files /></el-icon> {{ chatStore.currentConsultation.recommended_department }}
+            </el-tag>
+            <el-tag size="small" effect="plain">{{ messageCount }} 条消息</el-tag>
+          </div>
+        </div>
+        <div>
+          <el-button v-if="!chatStore.isInConsultation" type="primary" @click="showStart = true">
+            开始新问诊
+          </el-button>
+          <el-button v-else @click="showAnalyze = true" type="warning" plain>
+            <el-icon><DataAnalysis /></el-icon>
+            结构化分析
+          </el-button>
+          <el-button @click="handleClear">清空</el-button>
+        </div>
+      </div>
+
+      <!-- 消息列表 -->
+      <div class="messages" ref="messagesRef">
+        <template v-if="!chatStore.isInConsultation">
+          <el-empty description='还没有问诊，点击右上角「开始新问诊」或描述您的症状开始' />
+        </template>
+
+        <template v-else>
+          <div
+            v-for="msg in chatStore.messages"
+            :key="msg.id"
+            class="chat-message"
+            :class="msg.role === 'user' ? 'user' : 'ai'"
+          >
+            <div class="chat-avatar" :class="msg.role === 'user' ? 'user' : 'ai'">
+              <el-icon :size="20"><component :is="msg.role === 'user' ? 'User' : 'FirstAidKit'" /></el-icon>
+            </div>
+            <div>
+              <div class="chat-bubble" :class="msg.role === 'user' ? 'user' : 'ai'">
+                <!-- 紧急提示 -->
+                <div v-if="msg.urgency_level && msg.urgency_level >= 4" class="emergency-alert">
+                  <el-icon><WarningFilled /></el-icon>
+                  检测到可能的紧急症状,建议立即就医或拨打 120
+                </div>
+                <!-- 内容(Markdown 渲染) -->
+                <div class="markdown-body" v-html="renderMarkdown(msg.content)"></div>
+                <!-- 知识来源 -->
+                <div v-if="msg.source_knowledge && msg.source_knowledge.length" class="knowledge-sources">
+                  <div class="source-title">📚 参考医学知识</div>
+                  <div
+                    v-for="(src, i) in msg.source_knowledge"
+                    :key="i"
+                    class="source-item"
+                    @click="viewSource(src)"
+                  >
+                    {{ i + 1 }}. {{ src.title || src.id }}
+                    <span class="source-meta">
+                      [{{ src.category }}] 相关度 {{ (src.relevance || src.score || 0).toFixed(2) }}
+                    </span>
+                  </div>
+                </div>
+                <!-- 时间 -->
+                <div class="msg-time">{{ formatTime(msg.created_at) }}</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- loading 提示 -->
+          <div v-if="chatStore.isLoading" class="chat-message ai">
+            <div class="chat-avatar ai">
+              <el-icon :size="20"><FirstAidKit /></el-icon>
+            </div>
+            <div class="chat-bubble ai">
+              <el-icon class="is-loading"><Loading /></el-icon>
+              AI 正在思考...
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- 输入区 -->
+      <div class="input-area">
+        <el-input
+          v-model="inputText"
+          type="textarea"
+          :rows="2"
+          :placeholder="chatStore.isInConsultation ? '继续描述症状、追问或要求建议…' : '请先开始新问诊'"
+          :disabled="!chatStore.isInConsultation || chatStore.isLoading"
+          @keydown.enter.exact.prevent="handleSend"
+          resize="none"
+        />
+        <el-button
+          type="primary"
+          :icon="Promotion"
+          :loading="chatStore.isLoading"
+          :disabled="!inputText.trim() || !chatStore.isInConsultation"
+          @click="handleSend"
+        >
+          发送
+        </el-button>
+      </div>
+    </el-card>
+
+    <!-- 开始问诊对话框 -->
+    <el-dialog v-model="showStart" title="开始新问诊" width="500px">
+      <el-form :model="startForm" label-width="80px">
+        <el-form-item label="主诉">
+          <el-input
+            v-model="startForm.complaint"
+            type="textarea"
+            :rows="3"
+            placeholder="请用一两句话描述您的主要不适,例如:头痛 3 天,伴有低烧"
+          />
+        </el-form-item>
+        <el-form-item label="示例">
+          <div class="examples">
+            <el-tag
+              v-for="ex in examples"
+              :key="ex"
+              class="example-tag"
+              @click="startForm.complaint = ex"
+            >{{ ex }}</el-tag>
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showStart = false">取消</el-button>
+        <el-button type="primary" :disabled="!startForm.complaint.trim()" @click="handleStart">
+          开始
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 结构化分析结果 -->
+    <el-dialog v-model="showAnalyze" title="症状结构化分析" width="640px">
+      <div v-if="analyzeResult">
+        <el-alert
+          v-if="analyzeResult.needs_urgent_care"
+          type="error"
+          :closable="false"
+          show-icon
+          title="⚠️ 紧急提示"
+          description="检测到可能的紧急症状,请立即就医或拨打 120"
+        />
+        <el-descriptions :column="1" border style="margin-top: 12px">
+          <el-descriptions-item label="紧急程度">
+            <el-tag :type="urgencyType(analyzeResult.urgency_level)">
+              {{ urgencyLabel(analyzeResult.urgency_level) }}
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="推荐科室">
+            {{ analyzeResult.department || '暂无' }}
+          </el-descriptions-item>
+          <el-descriptions-item label="可能原因">
+            <el-tag
+              v-for="c in (analyzeResult.possible_causes || [])"
+              :key="c"
+              style="margin: 2px"
+            >{{ c }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="建议检查">
+            <div v-for="e in (analyzeResult.suggested_examinations || [])" :key="e">• {{ e }}</div>
+          </el-descriptions-item>
+          <el-descriptions-item label="自我护理">
+            <div v-for="t in (analyzeResult.self_care_tips || [])" :key="t">• {{ t }}</div>
+          </el-descriptions-item>
+          <el-descriptions-item label="参考来源" v-if="analyzeResult.reference_sources?.length">
+            <div
+              v-for="(s, i) in analyzeResult.reference_sources"
+              :key="i"
+              style="font-size: 13px; color: #606266"
+            >
+              {{ i + 1 }}. {{ s.title }} [{{ s.category }}] 相关度 {{ s.relevance }}
+            </div>
+          </el-descriptions-item>
+        </el-descriptions>
+        <el-alert
+          type="info"
+          :closable="false"
+          style="margin-top: 12px"
+          title="免责声明"
+          description="本分析仅供参考,不能替代专业医生诊断。如有不适,请及时就医。"
+        />
+      </div>
+      <div v-else>
+        <el-skeleton :rows="6" animated />
+      </div>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup>
+import { ref, computed, nextTick, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { marked } from 'marked'
+import { useChatStore } from '@/stores/chat'
+import { agentApi } from '@/api/agent'
+import { knowledgeApi } from '@/api/knowledge'
+
+const route = useRoute()
+const chatStore = useChatStore()
+const messagesRef = ref(null)
+const inputText = ref('')
+const showStart = ref(false)
+const showAnalyze = ref(false)
+const analyzeResult = ref(null)
+
+const startForm = ref({ complaint: '' })
+const examples = [
+  '头痛 3 天,伴有低烧 37.8°C',
+  '最近 1 周咳嗽,有黄痰',
+  '胃痛,饭后加重,反酸',
+  '血压偏高 150/95,偶尔头晕',
+  '皮肤出现红色疹子,瘙痒'
+]
+
+const messageCount = computed(() => chatStore.messages.length)
+
+marked.setOptions({ breaks: true, gfm: true })
+const renderMarkdown = (text) => {
+  if (!text) return ''
+  return marked.parse(text)
+}
+
+const formatTime = (iso) => {
+  if (!iso) return ''
+  const d = new Date(iso)
+  return d.toLocaleString('zh-CN', { hour12: false })
+}
+
+const urgencyLabel = (level) => {
+  return ['', '无需就医', '择期就医', '尽快就医', '立即急诊'][level || 1] || '未知'
+}
+const urgencyType = (level) => ['', 'info', 'success', 'warning', 'danger'][level || 1] || 'info'
+
+// 滚动到底部
+const scrollToBottom = async () => {
+  await nextTick()
+  if (messagesRef.value) {
+    messagesRef.value.scrollTop = messagesRef.value.scrollHeight
+  }
+}
+
+watch(() => chatStore.messages.length, scrollToBottom)
+
+onMounted(async () => {
+  // 从路由加载历史问诊
+  const id = route.params.id
+  if (id) {
+    try {
+      await chatStore.loadConsultation(Number(id))
+      scrollToBottom()
+    } catch (e) {
+      ElMessage.error('加载问诊失败')
+    }
+  }
+})
+
+const handleStart = async () => {
+  if (!startForm.value.complaint.trim()) return
+  showStart.value = false
+  try {
+    await chatStore.startConsultation(startForm.value.complaint.trim())
+    startForm.value.complaint = ''
+    scrollToBottom()
+  } catch (e) {
+    ElMessage.error('创建问诊失败')
+  }
+}
+
+const handleSend = async () => {
+  const text = inputText.value.trim()
+  if (!text) return
+  inputText.value = ''
+  try {
+    await chatStore.sendMessage(text)
+    scrollToBottom()
+  } catch (e) {
+    ElMessage.error('发送失败')
+  }
+}
+
+const handleClear = () => {
+  ElMessageBox.confirm('确认清空当前问诊?', '提示', { type: 'warning' })
+    .then(() => chatStore.clearCurrent())
+    .catch(() => {})
+}
+
+// 结构化分析
+const runAnalyze = async () => {
+  if (!chatStore.currentConsultation) {
+    ElMessage.warning('请先开始问诊')
+    return
+  }
+  showAnalyze.value = true
+  analyzeResult.value = null
+  try {
+    const chief = chatStore.currentConsultation.chief_complaint
+    const allText = chatStore.messages
+      .filter((m) => m.role === 'user')
+      .map((m) => m.content)
+      .join('\n')
+    const result = await agentApi.analyze({
+      symptoms: allText || chief,
+      consultation_id: chatStore.currentConsultationId
+    })
+    analyzeResult.value = result
+    // 刷新当前问诊的紧急度/科室
+    await chatStore.loadConsultation(chatStore.currentConsultationId)
+    ElMessage.success('已同步到问诊记录,管理后台可看到紧急度')
+  } catch (e) {
+    ElMessage.error('分析失败')
+    showAnalyze.value = false
+  }
+}
+
+watch(showAnalyze, (v) => { if (v) runAnalyze() })
+
+const viewSource = async (src) => {
+  if (!src.id) return
+  try {
+    const detail = await knowledgeApi.detail(src.id)
+    ElMessageBox.alert(detail.content.slice(0, 1500), detail.title, {
+      confirmButtonText: '关闭',
+      customClass: 'kb-detail-dialog'
+    })
+  } catch {
+    ElMessage.error('加载知识详情失败')
+  }
+}
+</script>
+
+<style lang="scss" scoped>
+.chat-card { border-radius: 8px; }
+.chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #ebeef5;
+  margin-bottom: 16px;
+  h3 { margin: 0 0 8px; display: flex; align-items: center; gap: 6px; font-size: 16px; }
+  .meta { display: flex; gap: 8px; flex-wrap: wrap; }
+}
+
+.messages {
+  height: 500px;
+  overflow-y: auto;
+  padding: 12px;
+  background: #f5f7fa;
+  border-radius: 6px;
+  margin-bottom: 16px;
+}
+
+.input-area {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  :deep(.el-textarea__inner) { resize: none; }
+}
+
+.msg-time {
+  font-size: 11px;
+  color: #c0c4cc;
+  margin-top: 6px;
+  text-align: right;
+}
+
+.examples { display: flex; flex-wrap: wrap; gap: 6px; }
+.example-tag { cursor: pointer; }
+</style>

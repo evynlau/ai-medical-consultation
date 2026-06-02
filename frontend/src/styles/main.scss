@@ -1,0 +1,114 @@
+/* 全局样式 */
+* { box-sizing: border-box; }
+
+html, body, #app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: #f5f7fa;
+  color: #303133;
+}
+
+a { text-decoration: none; color: inherit; }
+
+/* 通用容器 */
+.page-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.card-shadow {
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
+}
+
+/* 消息气泡 */
+.chat-message {
+  margin-bottom: 16px;
+  display: flex;
+  gap: 12px;
+  &.user { flex-direction: row-reverse; }
+}
+
+.chat-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  &.ai { background: #409EFF; color: #fff; }
+  &.user { background: #67C23A; color: #fff; }
+}
+
+.chat-bubble {
+  max-width: 70%;
+  padding: 12px 16px;
+  border-radius: 12px;
+  line-height: 1.6;
+  word-break: break-word;
+  &.ai { background: #fff; border: 1px solid #ebeef5; }
+  &.user { background: #409EFF; color: #fff; }
+}
+
+/* Markdown 渲染 */
+.markdown-body {
+  h1, h2, h3, h4 { margin: 12px 0 8px; font-weight: 600; }
+  h1 { font-size: 18px; }
+  h2 { font-size: 16px; }
+  h3 { font-size: 15px; }
+  p { margin: 6px 0; }
+  ul, ol { padding-left: 20px; margin: 6px 0; }
+  li { margin: 2px 0; }
+  code {
+    background: #f0f2f5;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 13px;
+  }
+  blockquote {
+    border-left: 3px solid #409EFF;
+    padding: 4px 12px;
+    margin: 8px 0;
+    background: #f5f7fa;
+    color: #606266;
+  }
+}
+
+/* 紧急提示 */
+.emergency-alert {
+  background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%);
+  color: #fff;
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin: 12px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+}
+
+/* 知识来源 */
+.knowledge-sources {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: #f0f9ff;
+  border-left: 3px solid #409EFF;
+  border-radius: 4px;
+  font-size: 13px;
+
+  .source-title { font-weight: 600; margin-bottom: 4px; }
+  .source-item {
+    color: #606266;
+    margin: 2px 0;
+    cursor: pointer;
+    &:hover { color: #409EFF; }
+  }
+  .source-meta {
+    color: #909399;
+    font-size: 12px;
+    margin-left: 4px;
+  }
+}

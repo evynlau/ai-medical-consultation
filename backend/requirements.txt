@@ -1,0 +1,39 @@
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+
+# 数据库
+sqlalchemy>=2.0.25
+aiosqlite>=0.19.0
+asyncpg>=0.29.0
+
+# Redis (可选)
+redis>=5.0.1
+
+# LLM
+openai>=1.10.0
+
+# 向量 (PyPI 1.7.4 已无,改为可用范围)
+faiss-cpu>=1.8.0
+numpy>=1.26.0,<2.0.0
+
+# Embedding (本地,默认 mock 不需要下载)
+sentence-transformers>=2.3.1
+
+# 认证 (使用 bcrypt 直接调用,无需 passlib)
+bcrypt>=4.0.0
+python-jose[cryptography]>=3.3.0
+
+# 配置
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+email-validator>=2.0.0
+
+# 文档解析 (可选,知识库构建)
+pymupdf>=1.23.0
+
+# 工具
+httpx>=0.26.0
+python-dotenv>=1.0.0
+python-dateutil>=2.8.0
+nest_asyncio>=1.5.0  # 让 RAG 服务在已有事件循环中安全地跑异步 embedding
