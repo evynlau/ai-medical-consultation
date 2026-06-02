@@ -78,6 +78,9 @@ backend/data/faiss_index/
 *.gif
 !frontend/public/favicon.svg
 !knowledge_base/**/*.png
+!image/**/*.png
+!image/**/*.jpg
+!image/**/*.jpeg
 
 # ============================================
 # 环境变量
