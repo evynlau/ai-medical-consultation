@@ -8,10 +8,12 @@ export const useChatStore = defineStore('chat', {
     messages: [],
     consultationsList: [],
     isLoading: false,
-    error: null
+    error: null,
+    pendingContext: null  // 来自 OCR/报告等的初始上下文
   }),
   getters: {
-    isInConsultation: (s) => !!s.currentConsultationId
+    isInConsultation: (s) => !!s.currentConsultationId,
+    hasPendingContext: (s) => !!s.pendingContext
   },
   actions: {
     async startConsultation(chiefComplaint) {

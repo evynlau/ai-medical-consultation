@@ -113,13 +113,28 @@
     </el-card>
 
     <!-- 开始问诊对话框 -->
-    <el-dialog v-model="showStart" title="开始新问诊" width="500px">
+    <el-dialog v-model="showStart" title="开始新问诊" width="600px">
       <el-form :model="startForm" label-width="80px">
+        <!-- 携带的 OCR/报告上下文 -->
+        <el-alert
+          v-if="pendingContext"
+          :title="`📋 已携带${pendingContext.summary}`"
+          type="success"
+          :closable="true"
+          @close="chatStore.pendingContext = null"
+          style="margin-bottom: 12px"
+          show-icon
+        >
+          <div style="font-size: 12px; color: #606266">
+            主诉输入框已自动填入报告内容,直接点"开始"即可
+          </div>
+        </el-alert>
+
         <el-form-item label="主诉">
           <el-input
             v-model="startForm.complaint"
             type="textarea"
-            :rows="3"
+            :rows="6"
             placeholder="请用一两句话描述您的主要不适,例如:头痛 3 天,伴有低烧"
           />
         </el-form-item>
@@ -226,6 +241,17 @@ const examples = [
   '皮肤出现红色疹子,瘙痒'
 ]
 
+// OCR / 报告上下文(从 OCR 页跳过来时携带)
+const pendingContext = computed(() => chatStore.pendingContext)
+const showContextBanner = ref(false)
+watch(pendingContext, (v) => {
+  if (v) {
+    showContextBanner.value = true
+    // 自动填入主诉
+    startForm.value.complaint = v.content
+  }
+}, { immediate: true })
+
 const messageCount = computed(() => chatStore.messages.length)
 
 marked.setOptions({ breaks: true, gfm: true })
@@ -274,6 +300,8 @@ const handleStart = async () => {
   try {
     await chatStore.startConsultation(startForm.value.complaint.trim())
     startForm.value.complaint = ''
+    // 启动后清掉 pendingContext(已用完)
+    chatStore.pendingContext = null
     scrollToBottom()
   } catch (e) {
     ElMessage.error('创建问诊失败')

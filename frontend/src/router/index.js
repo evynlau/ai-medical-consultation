@@ -33,6 +33,12 @@ const routes = [
     meta: { title: '知识库' }
   },
   {
+    path: '/ocr',
+    name: 'ocr',
+    component: () => import('@/views/ocr/OCR.vue'),
+    meta: { title: 'OCR 识别' }
+  },
+  {
     path: '/login',
     name: 'login',
     component: () => import('@/views/Login.vue'),

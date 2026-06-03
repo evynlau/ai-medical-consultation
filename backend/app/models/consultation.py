@@ -21,7 +21,7 @@ class Consultation(Base):
         ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True
     )  # 允许匿名问诊
 
-    chief_complaint: Mapped[str] = mapped_column(String(500), nullable=False)  # 主诉
+    chief_complaint: Mapped[str] = mapped_column(Text, nullable=False)  # 主诉(支持长文本,如报告内容)
     status: Mapped[str] = mapped_column(String(20), default="active")  # active/closed
 
     # Agent 输出的结构化诊断

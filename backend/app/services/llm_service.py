@@ -36,7 +36,7 @@ class LLMService:
             self._client = AsyncOpenAI(
                 api_key=settings.OPENAI_API_KEY or "ollama",
                 base_url=settings.OPENAI_BASE_URL,
-                timeout=120.0,  # 本地模型推理慢,给 2 分钟
+                timeout=float(settings.API_RESPONSE_TIMEOUT),
             )
         return self._client
 
@@ -70,13 +70,25 @@ class LLMService:
             # 1) 正常 content
             message = resp.choices[0].message
             content = (message.content or "").strip() if message.content else ""
+            reasoning = getattr(message, "reasoning", None) or getattr(message, "reasoning_content", None) or ""
+            is_thinking_model = bool(reasoning)
 
-            # 2) 思考型模型(Ollama 很多 MoE 会这样):content 空但 reasoning 有内容
+            # 2) 思考型模型(Ollama 很多 MoE):同时有 content 和 reasoning
+            #    content 才是用户要的输出,reasoning 是思考过程(可丢弃)
+            if is_thinking_model:
+                logger.info(f"[LLM] 思考型模型(content={len(content)}字, reasoning={len(reasoning)}字)")
+                if content:
+                    # content 已有,直接用,reasoning 丢弃
+                    logger.info(f"[LLM] 思考型已返回 content,使用 content")
+                else:
+                    # content 为空才去 reasoning 找答案
+                    logger.info(f"[LLM] content 为空,从 reasoning 提取")
+                    content = self._extract_final_answer(reasoning) or content
+
+            # 3) 都没内容,降级 mock
             if not content:
-                reasoning = getattr(message, "reasoning", None) or getattr(message, "reasoning_content", None)
-                if reasoning:
-                    logger.info(f"[LLM] 检测到思考型模型,reasoning {len(reasoning)} 字符,提取最终答案")
-                    content = self._extract_final_answer(reasoning)
+                logger.warning(f"[LLM] 响应为空(finish_reason={resp.choices[0].finish_reason}),降级到 mock")
+                content = self._mock_chat(messages)
 
             # 3) 如果还是空,降级到 mock(给用户看到东西,而不是空白气泡)
             if not content:
@@ -93,39 +105,68 @@ class LLMService:
 
     def _extract_final_answer(self, reasoning: str) -> str:
         """从思考型模型的 reasoning 中提取最终答案
-        思路:reasoning 末尾通常有"Final Answer:"或"输出:"之类的标记,
-              也可能直接包含 markdown 格式的最终答案
+        优先级:
+          1) reasoning 中内嵌的 ```json ... ``` 代码块(结构化输出场景)
+          2) 纯 JSON {...}(无代码块包裹)
+          3) "最终答案/Final Answer" 标记后的内容
+          4) 过滤"思考残留"后,取最后一段非空内容
+          5) 全文末尾 800 字(兜底)
         """
         if not reasoning:
             return ""
+
+        import re
+
+        # 0) 优先:reasoning 中可能内嵌 ```json {...}``` 代码块
+        json_blocks = re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", reasoning, re.DOTALL)
+        for blk in reversed(json_blocks):
+            if '"reply"' in blk or '"urgency_level"' in blk or '"department"' in blk:
+                return blk.strip()
+
+        # 0.5) 任意完整 JSON 对象
+        brace_match = re.search(r'(\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\})', reasoning, re.DOTALL)
+        if brace_match:
+            candidate = brace_match.group(1)
+            if any(k in candidate for k in ['"reply"', '"urgency_level"', '"department"', '"possible_causes"']):
+                return candidate
+
         text = reasoning.strip()
 
-        # 尝试 1:找"最终答案"等标记
+        # 1) "最终答案"等标记
         markers = ["最终答案", "最终输出", "Final Answer", "Final Output",
                    "输出如下", "输出:", "答案:", "回复如下", "应该回复",
                    "Ready to Output", "Final Response", "我会回复"]
         for m in markers:
             idx = text.find(m)
             if idx >= 0:
-                # 取标记后到结尾的内容
                 after = text[idx + len(m):].strip()
-                # 去掉前缀标点
-                for prefix in [":", "：", "=", "：", "应", "如下"]:
+                for prefix in [":", "：", "=", "应", "如下"]:
                     if after.startswith(prefix):
                         after = after[len(prefix):].strip()
-                if len(after) > 20:  # 至少要有内容
+                if len(after) > 20:
                     return after
 
-        # 尝试 2:取最后一段非空内容(>= 30 字)
+        # 2) 过滤"思考残留"行,取最后一段
+        #    思考型模型常在 reasoning 末尾自检 schema/analyze,但这都不是答案
+        skip_patterns = [
+            "check schema", "all match", "analyze user input", "thinking process",
+            "self-correction", "mental refinement", "draft", "let me",
+            "map to json", "constraints:", "output format", "final polish",
+            "ready to", "ready for", "我能想到", "让我", "思考:", "分析:",
+            "drafting", "preparation", "constraint", "step 1", "step 2",
+            "step 3", "step 4", "step 5", "6.", "7.", "8.", "9.", "10.",
+            "我需要", "1.", "2.", "3.", "4.", "5.", "**",
+        ]
         paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+        # 反向遍历找第一个不是"思考残留"的段落
         for p in reversed(paragraphs):
-            # 跳过"思考过程"段落
-            if any(k in p for k in ["thinking", "分析:", "Mental", "思考:", "让我", "Draft", "Self-Correction"]):
+            p_lower = p.lower()
+            if any(s in p_lower for s in skip_patterns):
                 continue
             if len(p) >= 30:
                 return p
 
-        # 兜底:取最后 800 字
+        # 3) 兜底:取最后 800 字
         return text[-800:] if len(text) > 800 else text
 
     async def _stream_chat(self, client, messages, temperature, max_tokens) -> str:

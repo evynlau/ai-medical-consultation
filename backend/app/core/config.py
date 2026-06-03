@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     OPENAI_MODEL: str = "gpt-4-turbo-preview"
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
 
+    # OCR 配置
+    # engine: tesseract(本地 tesseract) | vision(多模态 LLM) | mock(演示文本)
+    OCR_ENGINE: str = "auto"  # auto = 按可用性自动选 vision > tesseract > mock
+    OCR_VISION_MODEL: str = ""  # 留空跟随 LLM 的 OPENAI_MODEL,或单独指定如 llama3.2-vision
+
     EMBEDDING_PROVIDER: str = "mock"
     EMBEDDING_MODEL: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     EMBEDDING_DIM: int = 384
@@ -31,6 +36,9 @@ class Settings(BaseSettings):
     RAG_SCORE_THRESHOLD: float = 0.2
 
     CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:3000"]
+
+    # 客户端超时(秒),给 LLM 充分思考时间
+    API_RESPONSE_TIMEOUT: int = 180
 
     model_config = SettingsConfigDict(
         env_file=".env",

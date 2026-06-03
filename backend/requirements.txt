@@ -32,6 +32,11 @@ email-validator>=2.0.0
 # 文档解析 (可选,知识库构建)
 pymupdf>=1.23.0
 
+# OCR - 处方/检查报告图片识别(可选,需要系统装 tesseract-ocr)
+# Linux:   sudo apt-get install -y tesseract-ocr tesseract-ocr-chi-sim
+# macOS:   brew install tesseract tesseract-lang
+pytesseract>=0.3.10
+
 # 工具
 httpx>=0.26.0
 python-dotenv>=1.0.0

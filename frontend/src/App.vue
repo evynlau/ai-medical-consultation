@@ -9,6 +9,7 @@
         <el-menu mode="horizontal" :default-active="$route.path" router class="nav">
           <el-menu-item index="/">首页</el-menu-item>
           <el-menu-item index="/chat">在线问诊</el-menu-item>
+          <el-menu-item index="/ocr">OCR 识别</el-menu-item>
           <el-menu-item index="/history">问诊记录</el-menu-item>
           <el-menu-item index="/knowledge">知识库</el-menu-item>
         </el-menu>

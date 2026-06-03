@@ -117,7 +117,13 @@ class MedicalAgent:
   "suggested_examinations": ["建议检查1", "建议检查2"],
   "department": "推荐就诊科室",
   "self_care_tips": ["护理建议1", "护理建议2", "护理建议3"]
-}}"""
+}}
+
+【严禁事项】
+- 严禁在 reply 字段包含思考/规划/自检文本(如 "Check against Constraints"、"Draft JSON"、"Map to JSON Schema"、"Analyze User Input" 等)
+- 严禁在 JSON 外加任何解释文字
+- reply 字段必须是**直接给患者看的、温暖专业的医学分析**
+- 其他字段必须是干净的列表/数值/布尔,不要带 markdown 标记"""
 
         messages = [
             {"role": "system", "content": self._build_system_prompt(user_context)},
@@ -125,8 +131,10 @@ class MedicalAgent:
         ]
         raw = await self.llm.chat(messages, temperature=0.3, max_tokens=1500)
 
-        # 5. 解析
+        # 5. 解析 + 清洗 reply
         result = self._parse_json_response(raw)
+        if result.get("reply"):
+            result["reply"] = self._clean_reply(result["reply"])
         if is_emergency and not result.get("needs_urgent_care"):
             result["needs_urgent_care"] = True
             result["urgency_level"] = max(result.get("urgency_level", 3), 4)
@@ -253,6 +261,63 @@ class MedicalAgent:
         return result
 
     # ====================== 工具方法 ======================
+
+    def _clean_reply(self, text: str) -> str:
+        """清洗 reply 字段,剥掉思考型模型的自检/规划残留
+        思考型模型常把 'Check against Constraints:'、'Draft JSON'、'Map to JSON Schema'
+        等自检文本塞进 reply,需要剔除。
+        """
+        import re
+        if not text:
+            return text
+
+        # 1) 截断"Check against Constraints"及以后的所有内容
+        cut_markers = [
+            r"\n\s*Check against Constraints[:：]?",
+            r"\n\s*Check against constraints[:：]?",
+            r"\n\s*Draft JSON",
+            r"\n\s*Map to JSON",
+            r"\n\s*Structure JSON[:：]?",
+            r"\n\s*Final Polish[:：]?",
+            r"\n\s*Self[- ]Correction",
+            r"\n\s*Mental Refinement[:：]?",
+            r"\n\s*Ready to Output",
+            r"\n\s*Output Format[:：]?",
+            r"\n\s*Constraints?[:：]?",
+            r"\n\s*Self[- ]?Verify",
+            r"\n\s*Let'?s? structure",
+            # 思考型模型常见的开场白,出现在 reply 里说明模型在 thinking
+            r"^All (?:fields|the) (?:match|are)",
+            r"^I will (?:format|output|generate)",
+            r"^I need to (?:make sure|format|ensure|check)",
+            r"^The prompt asks? for",
+            r"^This (?:response|answer) (?:is|will)",
+            r"^I will output only the",
+            r"^I'll output",
+            r"^Here's? (?:the|my|a) (?:JSON|response|answer)",
+            r"^Let me (?:check|verify|think|generate)",
+            r"^Now I (?:will|need|can)",
+            r"^This is a",
+            r"^The (?:output|format) (?:is|should|must)",
+        ]
+        for pat in cut_markers:
+            m = re.search(pat, text, re.IGNORECASE | re.MULTILINE)
+            if m:
+                text = text[:m.start()].rstrip()
+                break
+
+        # 2) 检测整个 reply 是否就是"thinking narration"(没实际医学内容)
+        #    启发式:长度 < 50 且不含中文医学关键词,直接替换
+        medical_keywords = ["建议", "就医", "检查", "症状", "治疗", "风险", "患者", "健康", "疾病", "注意", "可能"]
+        if len(text) < 50 and not any(k in text for k in medical_keywords):
+            # 整个 reply 都是 narration,没有真东西
+            return ""  # 留给前端显示"AI 正在生成"
+
+        # 3) 清理 markdown 残留(```json 等代码块标记)
+        text = re.sub(r"```(?:json)?\s*", "", text)
+        text = re.sub(r"```\s*", "", text)
+
+        return text.strip()
 
     def _parse_json_response(self, raw: str) -> Dict[str, Any]:
         """从 LLM 响应中提取 JSON"""

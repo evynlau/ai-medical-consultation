@@ -3,7 +3,8 @@ import { ElMessage } from 'element-plus'
 
 const http = axios.create({
   baseURL: '/api/v1',
-  timeout: 60000
+  // 思考型模型可能需要 1-2 分钟,设长一些
+  timeout: 180000
 })
 
 // 请求拦截器:自动加 token

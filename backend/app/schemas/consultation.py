@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 
 class ConsultationCreate(BaseModel):
-    chief_complaint: str = Field(min_length=1, max_length=500)
+    chief_complaint: str = Field(min_length=1, max_length=10000)
     user_id: Optional[int] = None  # 允许匿名
 
 
