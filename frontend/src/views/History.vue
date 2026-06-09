@@ -47,21 +47,35 @@
             </template>
           </el-table-column>
         </el-table>
+
+        <el-pagination
+          v-model:current-page="pagination.page"
+          v-model:page-size="pagination.size"
+          :total="pagination.total"
+          :page-sizes="[10, 20, 50, 100]"
+          layout="total, sizes, prev, pager, next, jumper"
+          background
+          class="pagination"
+          @current-change="load"
+          @size-change="load"
+        />
       </template>
     </el-card>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useChatStore } from '@/stores/chat'
+import { consultApi } from '@/api/consult'
 
 const router = useRouter()
 const chatStore = useChatStore()
 const list = ref([])
 const loading = ref(true)
+const pagination = reactive({ page: 1, size: 20, total: 0 })
 
 const formatTime = (iso) => {
   if (!iso) return ''
@@ -73,7 +87,16 @@ const urgencyType = (l) => ['', 'info', 'success', 'warning', 'danger'][l || 1]
 const load = async () => {
   loading.value = true
   try {
-    list.value = await chatStore.fetchList()
+    const res = await consultApi.list({
+      limit: pagination.size,
+      offset: (pagination.page - 1) * pagination.size
+    })
+    list.value = res
+    if (res.length < pagination.size) {
+      pagination.total = (pagination.page - 1) * pagination.size + res.length
+    } else {
+      pagination.total = pagination.page * pagination.size + 1
+    }
   } catch {
     ElMessage.error('加载问诊记录失败')
   } finally {
@@ -95,6 +118,7 @@ onMounted(load)
   align-items: center;
   h3 { margin: 0; display: flex; align-items: center; gap: 6px; }
 }
+.pagination { margin-top: 16px; justify-content: flex-end; display: flex; }
 .complaint { color: #303133; }
 :deep(.el-table__row) { cursor: pointer; }
 </style>

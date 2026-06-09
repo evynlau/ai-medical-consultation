@@ -35,6 +35,18 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <el-pagination
+        v-model:current-page="pagination.page"
+        v-model:page-size="pagination.size"
+        :total="pagination.total"
+        :page-sizes="[10, 20, 50, 100]"
+        layout="total, sizes, prev, pager, next, jumper"
+        background
+        class="pagination"
+        @current-change="load"
+        @size-change="load"
+      />
     </el-card>
 
     <!-- 编辑对话框 -->
@@ -89,13 +101,23 @@ marked.setOptions({ breaks: true, gfm: true })
 
 const list = ref([])
 const loading = ref(false)
+const pagination = reactive({ page: 1, size: 20, total: 0 })
 const categoryLabel = (c) => ({ disease: '疾病', drug: '药品', examination: '检查', guideline: '指南' }[c] || c)
 const categoryType = (c) => ({ disease: 'danger', drug: 'warning', examination: 'success', guideline: 'info' }[c] || '')
 
 const load = async () => {
   loading.value = true
   try {
-    list.value = await knowledgeApi.list({ limit: 200 })
+    const res = await knowledgeApi.list({
+      limit: pagination.size,
+      offset: (pagination.page - 1) * pagination.size
+    })
+    list.value = res
+    if (res.length < pagination.size) {
+      pagination.total = (pagination.page - 1) * pagination.size + res.length
+    } else {
+      pagination.total = pagination.page * pagination.size + 1
+    }
   } finally {
     loading.value = false
   }
@@ -170,5 +192,7 @@ onMounted(load)
   align-items: center;
   h3 { margin: 0; display: flex; align-items: center; gap: 6px; }
   .actions { display: flex; gap: 8px; }
+}
+.pagination { margin-top: 16px; justify-content: flex-end; display: flex; }
 }
 </style>

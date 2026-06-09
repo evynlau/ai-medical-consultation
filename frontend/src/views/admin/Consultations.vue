@@ -58,6 +58,18 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <el-pagination
+        v-model:current-page="pagination.page"
+        v-model:page-size="pagination.size"
+        :total="pagination.total"
+        :page-sizes="[10, 20, 50, 100]"
+        layout="total, sizes, prev, pager, next, jumper"
+        background
+        class="pagination"
+        @current-change="load"
+        @size-change="load"
+      />
     </el-card>
 
     <!-- 详情对话框 -->
@@ -142,7 +154,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { marked } from 'marked'
 import { adminApi } from '@/api/admin'
@@ -152,6 +164,7 @@ marked.setOptions({ breaks: true, gfm: true })
 const list = ref([])
 const loading = ref(false)
 const filters = reactive({ keyword: '', urgency: null, status: null })
+const pagination = reactive({ page: 1, size: 20, total: 0 })
 const formatTime = (iso) => iso ? new Date(iso).toLocaleString('zh-CN', { hour12: false }) : '-'
 const urgencyLabel = (l) => ['', '无需就医', '择期就医', '尽快就医', '立即急诊'][l || 1]
 const urgencyType = (l) => ['', 'info', 'success', 'warning', 'danger'][l || 1]
@@ -162,11 +175,19 @@ const renderContent = (t) => t ? marked.parse(t) : ''
 const load = async () => {
   loading.value = true
   try {
-    list.value = await adminApi.consultations({
+    const res = await adminApi.consultations({
       keyword: filters.keyword || undefined,
       urgency: filters.urgency || undefined,
-      status: filters.status || undefined
+      status: filters.status || undefined,
+      limit: pagination.size,
+      offset: (pagination.page - 1) * pagination.size
     })
+    list.value = res
+    if (res.length < pagination.size) {
+      pagination.total = (pagination.page - 1) * pagination.size + res.length
+    } else {
+      pagination.total = pagination.page * pagination.size + 1
+    }
   } catch (e) {
     ElMessage.error('加载问诊失败')
   } finally {
@@ -228,6 +249,7 @@ onMounted(load)
   h3 { margin: 0; display: flex; align-items: center; gap: 6px; }
   .filters { display: flex; gap: 8px; }
 }
+.pagination { margin-top: 16px; justify-content: flex-end; display: flex; }
 .messages {
   max-height: 400px;
   overflow-y: auto;

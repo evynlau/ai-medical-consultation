@@ -71,6 +71,18 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <el-pagination
+        v-model:current-page="pagination.page"
+        v-model:page-size="pagination.size"
+        :total="pagination.total"
+        :page-sizes="[10, 20, 50, 100]"
+        layout="total, sizes, prev, pager, next, jumper"
+        background
+        class="pagination"
+        @current-change="load"
+        @size-change="load"
+      />
     </el-card>
 
     <!-- 设置科室对话框 -->
@@ -97,7 +109,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, watch, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { adminApi } from '@/api/admin'
 import { useUserStore } from '@/stores/user'
@@ -106,21 +118,35 @@ const userStore = useUserStore()
 const list = ref([])
 const loading = ref(false)
 const filters = reactive({ keyword: '', role: null })
+const pagination = reactive({ page: 1, size: 20, total: 0 })
 const formatTime = (iso) => iso ? new Date(iso).toLocaleString('zh-CN', { hour12: false }) : '-'
 
 const load = async () => {
   loading.value = true
   try {
-    list.value = await adminApi.users({
+    const res = await adminApi.users({
       keyword: filters.keyword || undefined,
-      role: filters.role || undefined
+      role: filters.role || undefined,
+      limit: pagination.size,
+      offset: (pagination.page - 1) * pagination.size
     })
+    list.value = res
+    if (res.length < pagination.size) {
+      pagination.total = (pagination.page - 1) * pagination.size + res.length
+    } else {
+      pagination.total = pagination.page * pagination.size + 1
+    }
   } catch (e) {
     ElMessage.error('加载失败')
   } finally {
     loading.value = false
   }
 }
+
+watch([() => filters.keyword, () => filters.role], () => {
+  pagination.page = 1
+  load()
+})
 
 const handleCmd = async (cmd, row) => {
   let payload = {}
@@ -169,4 +195,5 @@ onMounted(load)
   h3 { margin: 0; display: flex; align-items: center; gap: 6px; }
   .filters { display: flex; gap: 8px; }
 }
+.pagination { margin-top: 16px; justify-content: flex-end; display: flex; }
 </style>

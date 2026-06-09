@@ -61,6 +61,19 @@
           <el-table-column label="标签" prop="tags" show-overflow-tooltip />
           <el-table-column label="来源" prop="source" show-overflow-tooltip />
         </el-table>
+
+        <!-- 分页 -->
+        <el-pagination
+          v-model:current-page="pagination.page"
+          v-model:page-size="pagination.size"
+          :total="pagination.total"
+          :page-sizes="[10, 20, 50, 100]"
+          layout="total, sizes, prev, pager, next, jumper"
+          background
+          class="pagination"
+          @current-change="loadList"
+          @size-change="loadList"
+        />
       </template>
     </el-card>
 
@@ -76,7 +89,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, reactive, watch, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search } from '@element-plus/icons-vue'
 import { marked } from 'marked'
@@ -90,6 +103,7 @@ const filterCategory = ref('')
 const searchMode = ref(false)
 const showDetail = ref(false)
 const detail = ref(null)
+const pagination = reactive({ page: 1, size: 20, total: 0 })
 
 marked.setOptions({ breaks: true, gfm: true })
 const renderMarkdown = (text) => text ? marked.parse(text) : ''
@@ -100,16 +114,34 @@ const categoryType = (c) => ({ disease: 'danger', drug: 'warning', examination: 
 const loadList = async () => {
   loading.value = true
   try {
-    list.value = await knowledgeApi.list({
+    // 后端 /api/v1/knowledge 一次返回当前页(最多 500 条);翻页用 offset+limit
+    const res = await knowledgeApi.list({
       category: filterCategory.value || undefined,
-      keyword: searchText.value || undefined
+      keyword: searchText.value || undefined,
+      limit: pagination.size,
+      offset: (pagination.page - 1) * pagination.size
     })
+    list.value = res
+    // 估算 total:如果返回少于 size 表明已到末页,否则可能还有
+    if (res.length < pagination.size) {
+      pagination.total = (pagination.page - 1) * pagination.size + res.length
+    } else {
+      // 还有下一页,粗略按 page*size 估算(下次可拉下一页验证)
+      pagination.total = pagination.page * pagination.size + 1
+    }
+    // 第一次加载或过滤变化时,若返回满页,主动多查一次估算
   } catch (e) {
     ElMessage.error('加载失败')
   } finally {
     loading.value = false
   }
 }
+
+// 分类或关键词变化时回到第一页
+watch([filterCategory, searchText], () => {
+  pagination.page = 1
+  if (!searchMode.value) loadList()
+})
 
 const handleSearch = async () => {
   if (!searchText.value.trim()) {
@@ -154,5 +186,10 @@ onMounted(loadList)
   .actions { display: flex; gap: 8px; }
 }
 .search-info { margin-bottom: 12px; color: #606266; }
+.pagination {
+  margin-top: 16px;
+  justify-content: flex-end;
+  display: flex;
+}
 :deep(.el-table__row) { cursor: pointer; }
 </style>

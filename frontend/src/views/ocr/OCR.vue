@@ -98,6 +98,17 @@
             </template>
           </el-table-column>
         </el-table>
+        <el-pagination
+          v-model:current-page="ocrPage.page"
+          v-model:page-size="ocrPage.size"
+          :total="ocrPage.total"
+          :page-sizes="[10, 20, 50, 100]"
+          layout="total, sizes, prev, pager, next, jumper"
+          background
+          class="pagination"
+          @current-change="loadHistory"
+          @size-change="loadHistory"
+        />
         <el-empty v-if="!loadingHistory && history.length === 0" description="还没有 OCR 记录" />
       </div>
     </el-card>
@@ -277,7 +288,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ChatLineSquare, DocumentCopy } from '@element-plus/icons-vue'
 import { ocrApi } from '@/api/ocr'
@@ -292,6 +303,7 @@ const result = ref(null)
 const showResult = ref(false)
 const showHistory = ref(false)
 const history = ref([])
+const ocrPage = reactive({ page: 1, size: 20, total: 0 })
 const loadingHistory = ref(false)
 const uploadRef = ref(null)
 const router = useRouter()
@@ -430,7 +442,16 @@ const submitUpload = async () => {
 const loadHistory = async () => {
   loadingHistory.value = true
   try {
-    history.value = await ocrApi.records()
+    const res = await ocrApi.records({
+      limit: ocrPage.size,
+      offset: (ocrPage.page - 1) * ocrPage.size
+    })
+    history.value = res
+    if (res.length < ocrPage.size) {
+      ocrPage.total = (ocrPage.page - 1) * ocrPage.size + res.length
+    } else {
+      ocrPage.total = ocrPage.page * ocrPage.size + 1
+    }
   } finally {
     loadingHistory.value = false
   }
@@ -656,5 +677,10 @@ onMounted(() => {
   display: flex;
   gap: 12px;
   justify-content: center;
+}
+.pagination {
+  margin-top: 16px;
+  justify-content: flex-end;
+  display: flex;
 }
 </style>
