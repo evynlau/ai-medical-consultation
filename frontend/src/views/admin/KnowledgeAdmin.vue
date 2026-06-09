@@ -194,5 +194,4 @@ onMounted(load)
   .actions { display: flex; gap: 8px; }
 }
 .pagination { margin-top: 16px; justify-content: flex-end; display: flex; }
-}
 </style>
