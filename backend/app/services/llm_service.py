@@ -90,18 +90,94 @@ class LLMService:
                 logger.warning(f"[LLM] 响应为空(finish_reason={resp.choices[0].finish_reason}),降级到 mock")
                 content = self._mock_chat(messages)
 
-            # 3) 如果还是空,降级到 mock(给用户看到东西,而不是空白气泡)
-            if not content:
-                logger.warning(f"[LLM] 响应为空(finish_reason={resp.choices[0].finish_reason}),降级到 mock")
-                content = self._mock_chat(messages)
+            # 4) 全局清洗:剥掉思考型模型的残留(Check against / Draft JSON / 我将回复等)
+            content = self._clean_reply(content)
 
             logger.info(f"[LLM] 响应 {len(content)} 字符")
             return content
         except Exception as e:
             logger.error(f"[LLM] 调用失败: {type(e).__name__}: {e}")
             logger.error(f"[LLM] 检查项: 1) Ollama 是否运行? 2) 模型 '{settings.OPENAI_MODEL}' 是否已下载? 3) base_url '{settings.OPENAI_BASE_URL}' 是否可达?")
-            # 失败也降级到 mock,不阻塞用户
             return self._mock_chat(messages)
+
+    @staticmethod
+    def _clean_reply(text: str) -> str:
+        """清洗 LLM 响应,剥掉思考型模型的自检/规划残留
+        用于所有出口:chat / analyze / triage,确保前端拿到的都是最终答案
+        """
+        import re
+        if not text:
+            return text
+
+        # 1) 截断"Check against Constraints"等标记
+        #    注意顺序:越具体、越长的 pattern 放前面,避免短 pattern 误切
+        cut_markers = [
+            # === 高优先级:精确匹配"Draft"开头的 plan 标题 ===
+            r"\n\s*\d+\.\s+\*\*Draft\b",  # 4.  **Draft - Section by Section
+            r"\n\s*\d+\.\s+\*\*Plan\b",
+            r"\n\s*\d+\.\s+\*\*Outline\b",
+            # === 中优先级:思考型模型常见自检/规划文本 ===
+            r"\n\s*Check against Constraints[:：]?",
+            r"\n\s*Check against constraints[:：]?",
+            r"\n\s*Draft JSON",
+            r"\n\s*Map to JSON",
+            r"\n\s*Structure JSON[:：]?",
+            r"\n\s*Final Polish[:：]?",
+            r"\n\s*Self[- ]Correction",
+            r"\n\s*Mental Refinement[:：]?",  # 这个会切到 (Mental Refinement) 之前
+            r"\n\s*Ready to Output",
+            r"\n\s*Output Format[:：]?",
+            r"\n\s*Constraints?[:：]?",
+            r"\n\s*Self[- ]?Verify",
+            r"\n\s*Let'?s? structure",
+            r"\n\s*Draft\s*[-:]",
+            r"\n\s*Outline\s*[-:]",
+            r"\n\s*Plan\s*[-:]",
+            r"\n\s*Format\s*Output",
+            r"\n\s*Format\s*[-:]",
+            r"\n\s*Tone\s*[-:]",
+            r"\n\s*Length\s*[-:]",
+            r"\n\s*Structure\s*[-:]",
+            # 思考型模型常见的"开场白"
+            r"^All (?:fields|the) (?:match|are)",
+            r"^I will (?:format|output|generate)",
+            r"^I need to (?:make sure|format|ensure|check)",
+            r"^The prompt asks? for",
+            r"^This (?:response|answer) (?:is|will)",
+            r"^I will output only the",
+            r"^I'll output",
+            r"^Here's? (?:the|my|a) (?:JSON|response|answer)",
+            r"^Let me (?:check|verify|think|generate)",
+            r"^Now I (?:will|need|can)",
+            r"^This is a",
+            r"^The (?:output|format) (?:is|should|must)",
+            # 段落内的英文注释块 `*(Acknowledge)*` `*(Common Causes)*`
+            r"\*\([A-Za-z][^)]*\)\*",  # 匹配 *(English Comment)*
+        ]
+        for pat in cut_markers:
+            m = re.search(pat, text, re.IGNORECASE | re.MULTILINE)
+            if m:
+                text = text[:m.start()].rstrip()
+                break
+
+        # 2) 检测整个内容是否就是"thinking narration"(没实际内容)
+        medical_keywords = ["建议", "就医", "检查", "症状", "治疗", "风险", "患者", "健康", "疾病", "注意", "可能", "你好", "您好"]
+        if len(text) < 50 and not any(k in text for k in medical_keywords):
+            return ""  # 整段都是 thinking narration,丢弃
+
+        # 3) 清理 markdown 残留(```json 等代码块标记)
+        text = re.sub(r"```(?:json)?\s*", "", text)
+        text = re.sub(r"```\s*", "", text)
+
+        # 4) 清理"行内英文标签" `*General Advice:*` `*Disclaimer:*` 等
+        text = re.sub(r"\*[A-Za-z][^*\n]{1,40}:\*", "", text)
+        # 清理孤儿单星号(避免残留 "Advice:" 等)
+        text = re.sub(r"\s\*\s+", " ", text)
+        # 清理 markdown 加粗标记 `**xxx**` (但保留普通文本)
+        # 这里只去掉单独成对的 `**`(被外层剥剩的)
+        text = re.sub(r"\*\*\s*\*\*", "", text)
+
+        return text.strip()
 
     def _extract_final_answer(self, reasoning: str) -> str:
         """从思考型模型的 reasoning 中提取最终答案
@@ -146,8 +222,34 @@ class LLMService:
                 if len(after) > 20:
                     return after
 
-        # 2) 过滤"思考残留"行,取最后一段
-        #    思考型模型常在 reasoning 末尾自检 schema/analyze,但这都不是答案
+        # 2) 过滤"思考残留"行,选最像"中文医学答案"的段落
+        #    启发式:中文段落中文字符占比高,英文模板段落中文字符占比低
+        #    思考型模型在 reasoning 末尾常是英文自检,不是答案
+        raw_paragraphs = [p.strip() for p in text.split("\n\n") if p.strip() and len(p) >= 30]
+
+        # 2.1) 剥掉段落开头的 markdown 标题行(如 "5.  **Draft the Content...:**" 单独成段的情况)
+        cleaned_paragraphs = []
+        title_pattern = re.compile(r"^\d+\.\s+\*\*[A-Za-z][^*]*\*\*[:：]?\s*$")
+        for p in raw_paragraphs:
+            lines = p.split("\n")
+            # 去掉首行如果是纯标题
+            if lines and title_pattern.match(lines[0].strip()):
+                lines = lines[1:]
+            cleaned = "\n".join(lines).strip()
+            if len(cleaned) >= 30:
+                cleaned_paragraphs.append(cleaned)
+
+        def chinese_ratio(s):
+            n_zh = sum(1 for ch in s if "一" <= ch <= "鿿")
+            return n_zh / max(len(s), 1)
+
+        # 优先选"中文密度 ≥ 30% 且长度 ≥ 50"的段落
+        candidates = [p for p in cleaned_paragraphs if chinese_ratio(p) >= 0.3 and len(p) >= 50]
+        if candidates:
+            return max(candidates, key=len)
+
+        # 退化:无明显中文段落,试英文中"看起来最像答案"的那段
+        # 跳过明显的 planning/draft/checking 段
         skip_patterns = [
             "check schema", "all match", "analyze user input", "thinking process",
             "self-correction", "mental refinement", "draft", "let me",
@@ -156,9 +258,9 @@ class LLMService:
             "drafting", "preparation", "constraint", "step 1", "step 2",
             "step 3", "step 4", "step 5", "6.", "7.", "8.", "9.", "10.",
             "我需要", "1.", "2.", "3.", "4.", "5.", "**",
+            "## section", "## subsection",
         ]
-        paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
-        # 反向遍历找第一个不是"思考残留"的段落
+        # 反向找第一段非 thinking 的
         for p in reversed(paragraphs):
             p_lower = p.lower()
             if any(s in p_lower for s in skip_patterns):
