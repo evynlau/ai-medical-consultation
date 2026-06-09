@@ -212,6 +212,43 @@
         <el-skeleton :rows="6" animated />
       </div>
     </el-dialog>
+
+    <!-- 知识详情弹窗(Markdown 渲染) -->
+    <el-dialog
+      v-model="showKbDetail"
+      :title="kbDetail?.title || '医学知识详情'"
+      width="780px"
+      top="5vh"
+      class="kb-detail-dialog"
+      destroy-on-close
+    >
+      <div v-if="kbDetail" v-loading="kbLoading">
+        <!-- 元信息条 -->
+        <div class="kb-meta">
+          <el-tag size="small" :type="kbCategoryType(kbDetail.category)">
+            {{ kbCategoryLabel(kbDetail.category) }}
+          </el-tag>
+          <span v-if="kbDetail.tags" class="kb-tags">
+            <el-icon><CollectionTag /></el-icon>
+            {{ kbDetail.tags }}
+          </span>
+          <span v-if="kbDetail.source" class="kb-source">
+            <el-icon><Document /></el-icon>
+            {{ kbDetail.source }}
+          </span>
+          <span class="kb-date">
+            <el-icon><Clock /></el-icon>
+            {{ formatTime(kbDetail.created_at) }}
+          </span>
+        </div>
+
+        <!-- Markdown 正文 -->
+        <div class="markdown-body kb-content" v-html="renderMarkdown(kbDetail.content)"></div>
+      </div>
+      <div v-else>
+        <el-skeleton :rows="8" animated />
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -219,6 +256,7 @@
 import { ref, computed, nextTick, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { CollectionTag, Document, Clock } from '@element-plus/icons-vue'
 import { marked } from 'marked'
 import { useChatStore } from '@/stores/chat'
 import { agentApi } from '@/api/agent'
@@ -270,6 +308,10 @@ const urgencyLabel = (level) => {
   return ['', '无需就医', '择期就医', '尽快就医', '立即急诊'][level || 1] || '未知'
 }
 const urgencyType = (level) => ['', 'info', 'success', 'warning', 'danger'][level || 1] || 'info'
+
+// 知识分类
+const kbCategoryLabel = (c) => ({ disease: '疾病', drug: '药品', examination: '检查', guideline: '指南' }[c] || c || '其他')
+const kbCategoryType = (c) => ({ disease: 'danger', drug: 'warning', examination: 'success', guideline: 'info' }[c] || '')
 
 // 滚动到底部
 const scrollToBottom = async () => {
@@ -356,16 +398,22 @@ const runAnalyze = async () => {
 
 watch(showAnalyze, (v) => { if (v) runAnalyze() })
 
+// 知识详情弹窗
+const showKbDetail = ref(false)
+const kbDetail = ref(null)
+const kbLoading = ref(false)
 const viewSource = async (src) => {
   if (!src.id) return
+  showKbDetail.value = true
+  kbDetail.value = null
+  kbLoading.value = true
   try {
-    const detail = await knowledgeApi.detail(src.id)
-    ElMessageBox.alert(detail.content.slice(0, 1500), detail.title, {
-      confirmButtonText: '关闭',
-      customClass: 'kb-detail-dialog'
-    })
+    kbDetail.value = await knowledgeApi.detail(src.id)
   } catch {
     ElMessage.error('加载知识详情失败')
+    showKbDetail.value = false
+  } finally {
+    kbLoading.value = false
   }
 }
 </script>
@@ -408,4 +456,111 @@ const viewSource = async (src) => {
 
 .examples { display: flex; flex-wrap: wrap; gap: 6px; }
 .example-tag { cursor: pointer; }
+
+/* ========== 知识详情弹窗 ========== */
+.kb-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  background: #f5f7fa;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #606266;
+
+  > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .el-icon { color: #909399; }
+}
+
+.kb-content {
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 8px 4px 24px;
+  font-size: 14px;
+  line-height: 1.8;
+  color: #303133;
+
+  h1, h2, h3, h4 {
+    margin: 18px 0 10px;
+    font-weight: 600;
+    color: #303133;
+    border-left: 3px solid #409EFF;
+    padding-left: 10px;
+  }
+  h1 { font-size: 18px; }
+  h2 { font-size: 16px; }
+  h3 { font-size: 15px; border-left-color: #67C23A; }
+  h4 { font-size: 14px; border-left-color: #E6A23C; border-left-width: 2px; }
+
+  p { margin: 8px 0; }
+  ul, ol { padding-left: 24px; margin: 8px 0; }
+  li { margin: 4px 0; line-height: 1.7; }
+
+  /* 列表项里的关键词高亮 */
+  li::marker { color: #409EFF; }
+
+  /* 表格(知识库里的"项目/结果/参考"那种) */
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 12px 0;
+    font-size: 13px;
+    background: #fff;
+    border-radius: 4px;
+    overflow: hidden;
+    box-shadow: 0 0 0 1px #ebeef5;
+  }
+  th, td {
+    padding: 8px 12px;
+    border: 1px solid #ebeef5;
+    text-align: left;
+  }
+  th {
+    background: #f5f7fa;
+    font-weight: 600;
+    color: #303133;
+  }
+  tr:nth-child(even) td { background: #fafbfc; }
+
+  /* 强调文本 */
+  strong { color: #f56c6c; font-weight: 600; }
+  em { color: #409EFF; font-style: normal; }
+
+  /* 代码块 */
+  code {
+    background: #f0f2f5;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 13px;
+    color: #d63384;
+  }
+  pre {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    padding: 12px 14px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.6;
+    code { background: transparent; color: inherit; padding: 0; }
+  }
+
+  /* 引用 */
+  blockquote {
+    border-left: 3px solid #c0c4cc;
+    padding: 6px 12px;
+    margin: 10px 0;
+    color: #606266;
+    background: #fafafa;
+  }
+
+  /* 水平线 */
+  hr { border: 0; border-top: 1px dashed #dcdfe6; margin: 16px 0; }
+}
 </style>
