@@ -403,13 +403,45 @@ async def admin_reindex(
 
 
 async def _rebuild_index(db: AsyncSession) -> int:
+    from pathlib import Path
+
+    documents = []
+
+    # 1. 加载数据库中的知识条目
     rows = (await db.execute(select(Knowledge))).scalars().all()
-    documents = [
-        {
-            "id": kb.id, "title": kb.title, "content": kb.content,
+    for kb in rows:
+        documents.append({
+            "id": f"kb_{kb.id}", "title": kb.title, "content": kb.content,
             "category": kb.category, "tags": kb.tags or "", "source": kb.source or "",
-        }
-        for kb in rows
-    ]
+        })
+
+    # 2. 加载知识库目录下的 .md 文件（药品、指南等）
+    import os
+    knowledge_base_dir = Path(os.getcwd()) / "knowledge_base"
+
+    drugs_dir = knowledge_base_dir / "drugs"
+    guidelines_dir = knowledge_base_dir / "guidelines"
+
+    for md_dir in [drugs_dir, guidelines_dir]:
+        if md_dir.exists():
+            for md_file in md_dir.glob("*.md"):
+                try:
+                    content = md_file.read_text(encoding="utf-8")
+                    # 从文件名提取标题（去除.md后缀）
+                    title = md_file.stem
+                    # 简单分类：药品为drug，指南为guideline
+                    category = "drug" if md_dir == drugs_dir else "guideline"
+
+                    documents.append({
+                        "id": f"file_{md_file.name}",
+                        "title": title,
+                        "content": content,
+                        "category": category,
+                        "tags": "",
+                        "source": md_file.name,
+                    })
+                except Exception as e:
+                    logger.warning(f"加载知识库文件失败 {md_file}: {e}")
+
     rag = get_rag_service()
     return rag.build_index(documents)
