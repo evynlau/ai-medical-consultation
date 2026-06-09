@@ -60,21 +60,9 @@ class RAGService:
             text = f"{d.get('title', '')}。{tags}。{d.get('content', '')}".strip()
             texts.append(text)
 
-        # 向量化
+        # 向量化 — 用独立线程跑 async(避免 uvicorn uvloop 冲突)
         logger.info(f"开始向量化 {len(texts)} 条知识...")
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = None
-
-        if loop and loop.is_running():
-            # 同步路径下也能跑
-            import nest_asyncio
-            nest_asyncio.apply()
-            embeddings = loop.run_until_complete(self.embedding.embed(texts))
-        else:
-            embeddings = asyncio.run(self.embedding.embed(texts))
+        embeddings = self._run_async(self.embedding.embed(texts))
         embeddings = np.array(embeddings).astype("float32")
 
         # 构建 FAISS 索引 (使用归一化向量 + 内积,等价余弦)
@@ -93,6 +81,29 @@ class RAGService:
         logger.info(f"✅ RAG 索引构建完成: {len(documents)} 条, dim={dim}")
         return len(documents)
 
+    def _run_async(self, coro):
+        """在独立线程中跑 async 协程(避开 uvicorn 的 uvloop)
+        与 OCR 服务同款方案,详见 app/services/ocr_service.py
+        """
+        import asyncio
+        import threading
+
+        result_holder = {"value": None, "error": None}
+
+        def _call():
+            try:
+                result_holder["value"] = asyncio.run(coro)
+            except Exception as e:
+                result_holder["error"] = e
+
+        t = threading.Thread(target=_call, daemon=True)
+        t.start()
+        t.join(timeout=180)
+
+        if result_holder["error"]:
+            raise result_holder["error"]
+        return result_holder["value"]
+
     def _save(self):
         """持久化索引"""
         import faiss
@@ -110,18 +121,8 @@ class RAGService:
             if self.index is None or self.index.ntotal == 0:
                 return []
 
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = None
-
-        if loop and loop.is_running():
-            import nest_asyncio
-            nest_asyncio.apply()
-            q_vec = loop.run_until_complete(self.embedding.embed([query]))
-        else:
-            q_vec = asyncio.run(self.embedding.embed([query]))
+        # 用独立线程跑 async 嵌入,绕开 uvicorn uvloop
+        q_vec = self._run_async(self.embedding.embed([query]))
         q_vec = np.array(q_vec).astype("float32")
         # 归一化
         norm = np.linalg.norm(q_vec)
