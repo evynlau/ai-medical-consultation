@@ -1,4 +1,4 @@
-"""Grad-CAM 实现 - 可视化 AI 关注的区域"""
+"""Grad-CAM 和 HiResCAM 实现 - 可视化 AI 关注的区域"""
 import io
 import base64
 from typing import Optional
@@ -116,6 +116,112 @@ def generate_gradcam(
     except Exception as e:
         import logging
         logging.warning(f"Grad-CAM 生成失败: {e}")
+        return None
+
+
+def generate_hirescam(
+    model: torch.nn.Module,
+    image: Image.Image,
+    transform: transforms.Compose,
+    device: torch.device,
+    target_layer_name: str = "layer4",
+) -> Optional[np.ndarray]:
+    """生成 HiResCAM 热力图
+
+    HiResCAM vs Grad-CAM:
+        - Grad-CAM: 对每个通道的梯度做全局平均池化(单权重),丢失空间信息
+        - HiResCAM: 激活 × 梯度 逐元素相乘,保持空间分辨率
+
+    优势:
+        - 热力图更精细,不模糊
+        - 与原图严格对齐
+        - 边界更清晰
+
+    论文: HiResCAM: Faithful Visualization of Neural Networks with High Resolution
+    """
+    try:
+        model.eval()
+
+        # 获取目标层
+        target_layer = None
+        for name, module in model.named_modules():
+            if name == target_layer_name:
+                target_layer = module
+                break
+
+        if target_layer is None:
+            target_layer = model.layer4[-1].conv3 if hasattr(model.layer4[-1], 'conv3') else None
+            if target_layer is None:
+                return None
+
+        # 预处理
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+        input_tensor = transform(image).unsqueeze(0).to(device)
+        input_tensor.requires_grad_(False)
+
+        # 存储激活值和梯度
+        activations = {}
+        gradients = {}
+
+        def forward_hook(module, input, output):
+            activations["value"] = output.detach()
+            output.requires_grad_(True)
+
+        def backward_hook(module, grad_input, grad_output):
+            gradients["value"] = grad_output[0].detach()
+
+        # 注册 hook
+        forward_handle = target_layer.register_forward_hook(forward_hook)
+        backward_handle = target_layer.register_full_backward_hook(backward_hook)
+
+        try:
+            # 前向传播
+            output = model(input_tensor)
+
+            # 获取预测类别
+            pred_class = output.argmax(dim=1).item()
+
+            # 反向传播
+            model.zero_grad()
+            one_hot = torch.zeros_like(output)
+            one_hot[0][pred_class] = 1
+            output.backward(gradient=one_hot, retain_graph=False)
+
+            if "value" not in activations or "value" not in gradients:
+                return None
+
+            activation = activations["value"]  # (1, C, H, W)
+            gradient = gradients["value"]      # (1, C, H, W)
+
+            # HiResCAM: 激活 × 梯度 逐元素相乘
+            # 不做全局平均池化 - 保持空间分辨率
+            cam = activation * gradient  # (1, C, H, W)
+            cam = cam.sum(dim=1, keepdim=True)  # (1, 1, H, W)
+            cam = F.relu(cam)
+
+            # 上采样到原图大小
+            cam = F.interpolate(
+                cam,
+                size=image.size[::-1],
+                mode="bilinear",
+                align_corners=False,
+            )
+            cam = cam.squeeze().cpu().numpy()
+
+            # 归一化到 0-255
+            cam = (cam - cam.min()) / (cam.max() - cam.min() + 1e-8) * 255
+            cam = cam.astype(np.uint8)
+
+            return cam
+
+        finally:
+            forward_handle.remove()
+            backward_handle.remove()
+
+    except Exception as e:
+        import logging
+        logging.warning(f"HiResCAM 生成失败: {e}")
         return None
 
 

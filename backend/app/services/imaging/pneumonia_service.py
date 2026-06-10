@@ -145,35 +145,40 @@ class PneumoniaService(BaseImagingService):
         result["original_image_size"] = image.size
         return result
 
-    def predict_with_gradcam(self, image: Image.Image) -> Tuple[Dict[str, Any], Optional[np.ndarray]]:
-        """推理 + Grad-CAM 热力图（限制在肺部区域内）"""
+    def predict_with_gradcam(self, image: Image.Image, method: str = "hirescam") -> Tuple[Dict[str, Any], Optional[np.ndarray]]:
+        """推理 + 热力图（HiResCAM 更精确，Grad-CAM 兼容性更好）
+
+        Args:
+            image: PIL Image
+            method: 'hirescam' 或 'gradcam'
+
+        Returns:
+            (result, heatmap)
+        """
         # 先进行预测
         result = self.predict(image)
 
-        # 生成 Grad-CAM - 使用肺部分割限制
         try:
-            from app.services.imaging.gradcam import generate_gradcam
-            from app.services.imaging.lung_segmentation import segment_lungs
+            from app.services.imaging.gradcam import generate_hirescam, generate_gradcam
 
-            # 对图像做肺部分割
-            lung_mask = segment_lungs(image)
-
-            # 在 mask 限制下生成 Grad-CAM
-            # 即：只在肺部区域内计算和显示热力图
-            heatmap = generate_gradcam(
-                model=self.model,
-                image=image,
-                transform=self.transform,
-                device=self.device,
-            )
-
-            # 应用肺部分割掩码 - 只保留肺部区域的热力图值，其他置零
-            if heatmap is not None:
-                heatmap = heatmap * lung_mask
-
+            # 根据 method 选择算法
+            if method == "hirescam":
+                heatmap = generate_hirescam(
+                    model=self.model,
+                    image=image,
+                    transform=self.transform,
+                    device=self.device,
+                )
+            else:
+                heatmap = generate_gradcam(
+                    model=self.model,
+                    image=image,
+                    transform=self.transform,
+                    device=self.device,
+                )
             return result, heatmap
         except Exception as e:
-            logger.warning(f"Grad-CAM 生成失败: {e}")
+            logger.warning(f"热力图生成失败 ({method}): {e}")
             return result, None
 
     def predict_from_bytes_with_gradcam(self, image_bytes: bytes) -> Dict[str, Any]:
