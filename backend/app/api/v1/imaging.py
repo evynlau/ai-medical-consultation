@@ -59,6 +59,7 @@ async def analyze_pneumonia(
     patient_id: Optional[int] = Form(None),
     consultation_id: Optional[int] = Form(None),
     include_gradcam: bool = Form(True),
+    gradcam_method: str = Form("hirescam", description="热力图算法: hirescam 或 gradcam"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_doctor_user),
 ):
@@ -66,6 +67,10 @@ async def analyze_pneumonia(
 
     支持的影像类型: JPEG, PNG
     限制: 10MB
+
+    gradcam_method:
+        - hirescam: 空间分辨率更高，边界更清晰（推荐）
+        - gradcam: 经典算法，兼容性好
     """
     # 验证文件类型
     if file.content_type not in ["image/jpeg", "image/jpg", "image/png"]:
@@ -76,13 +81,21 @@ async def analyze_pneumonia(
     if len(contents) > 10 * 1024 * 1024:
         raise HTTPException(400, "文件过大,最大支持 10MB")
 
+    # 验证 gradcam_method
+    if gradcam_method not in ("hirescam", "gradcam"):
+        gradcam_method = "hirescam"
+
     # AI 推理
     try:
         service = get_pneumonia_service()
         if include_gradcam:
-            result = service.predict_from_bytes_with_gradcam(contents)
+            result = service.predict_from_bytes_with_gradcam(
+                contents, method=gradcam_method
+            )
+            heatmap = result.get("gradcam_raw")
         else:
             result = service.predict_from_bytes(contents)
+            heatmap = None
     except Exception as e:
         logger.error(f"影像分析失败: {e}")
         raise HTTPException(500, f"AI 分析失败: {str(e)}")
@@ -114,6 +127,7 @@ async def analyze_pneumonia(
         "confidence": result["confidence"],
         "model_version": result["model_version"],
         "inference_time_ms": result.get("inference_time_ms"),
+        "gradcam_method": gradcam_method if include_gradcam else None,
         "gradcam": result.get("gradcam"),  # 已叠加的热力图(原图+热度)
         "gradcam_raw": result.get("gradcam_raw"),  # 仅热力图(透明PNG,用于前端叠加)
         "original_image": result.get("original_image"),  # 原始图像 base64

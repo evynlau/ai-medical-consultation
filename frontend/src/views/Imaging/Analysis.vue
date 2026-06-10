@@ -67,6 +67,15 @@
             <el-form-item label="Grad-CAM">
               <el-switch v-model="form.include_gradcam" active-text="生成 AI 关注区域" />
             </el-form-item>
+            <el-form-item v-if="form.include_gradcam" label="算法选择">
+              <el-radio-group v-model="form.gradcam_method">
+                <el-radio-button value="hirescam">HiResCAM (推荐)</el-radio-button>
+                <el-radio-button value="gradcam">Grad-CAM</el-radio-button>
+              </el-radio-group>
+              <span class="form-hint">
+                HiResCAM 空间分辨率更高，边界更清晰
+              </span>
+            </el-form-item>
             <el-form-item>
               <el-button
                 type="primary"
@@ -403,6 +412,7 @@ const form = reactive({
   patient_id: null,
   consultation_id: null,
   include_gradcam: true,
+  gradcam_method: 'hirescam',
 })
 
 const annotationForm = reactive({
@@ -453,6 +463,9 @@ const startAnalysis = async () => {
     if (form.patient_id) formData.append('patient_id', form.patient_id)
     if (form.consultation_id) formData.append('consultation_id', form.consultation_id)
     formData.append('include_gradcam', form.include_gradcam)
+    if (form.include_gradcam) {
+      formData.append('gradcam_method', form.gradcam_method)
+    }
 
     const data = await analyzePneumonia(formData)
     result.value = data

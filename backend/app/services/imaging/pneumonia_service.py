@@ -181,14 +181,19 @@ class PneumoniaService(BaseImagingService):
             logger.warning(f"热力图生成失败 ({method}): {e}")
             return result, None
 
-    def predict_from_bytes_with_gradcam(self, image_bytes: bytes) -> Dict[str, Any]:
-        """从字节流推理 + Grad-CAM"""
+    def predict_from_bytes_with_gradcam(self, image_bytes: bytes, method: str = "hirescam") -> Dict[str, Any]:
+        """从字节流推理 + 热力图
+
+        Args:
+            image_bytes: 图像字节流
+            method: 'hirescam' 或 'gradcam'
+        """
         try:
             image = Image.open(io.BytesIO(image_bytes))
         except Exception as e:
             raise ValueError(f"无法解析图像: {e}")
 
-        result, heatmap = self.predict_with_gradcam(image)
+        result, heatmap = self.predict_with_gradcam(image, method=method)
         result["original_image_size"] = image.size
 
         # 编码原始图像（供前端独立显示+叠加）
@@ -200,10 +205,8 @@ class PneumoniaService(BaseImagingService):
         result["original_image"] = f"data:image/png;base64,{orig_base64}"
 
         if heatmap is not None:
-            # 返回热力图 (PNG 灰度, 0-255)
             from app.services.imaging.gradcam import heatmap_to_base64, heatmap_to_base64_raw
             result["gradcam"] = heatmap_to_base64(heatmap, image.size)
-            # 同时保存原始热力图用于前端独立叠加
             result["gradcam_raw"] = heatmap_to_base64_raw(heatmap)
 
         return result
