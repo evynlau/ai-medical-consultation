@@ -1,5 +1,5 @@
 /** 影像分析 API 客户端 */
-import request from './request'
+import http from './http'
 
 /**
  * 上传胸片进行肺炎分析
@@ -7,10 +7,7 @@ import request from './request'
  * @returns {Promise}
  */
 export const analyzePneumonia = (formData) => {
-  return request({
-    url: '/imaging/pneumonia/analyze',
-    method: 'post',
-    data: formData,
+  return http.post('/imaging/pneumonia/analyze', formData, {
     headers: {
       'Content-Type': 'multipart/form-data'
     }
@@ -22,11 +19,7 @@ export const analyzePneumonia = (formData) => {
  * @param {Object} params - { patient_id, doctor_id, limit, offset }
  */
 export const getAnalysisHistory = (params) => {
-  return request({
-    url: '/imaging/history',
-    method: 'get',
-    params
-  })
+  return http.get('/imaging/history', { params })
 }
 
 /**
@@ -34,10 +27,7 @@ export const getAnalysisHistory = (params) => {
  * @param {number} id
  */
 export const getAnalysisDetail = (id) => {
-  return request({
-    url: `/imaging/${id}`,
-    method: 'get'
-  })
+  return http.get(`/imaging/${id}`)
 }
 
 /**
@@ -46,11 +36,7 @@ export const getAnalysisDetail = (id) => {
  * @param {Object} data - { annotation, agreement, correct_label }
  */
 export const submitAnnotation = (id, data) => {
-  return request({
-    url: `/imaging/${id}/annotate`,
-    method: 'post',
-    data
-  })
+  return http.post(`/imaging/${id}/annotate`, data)
 }
 
 /**
@@ -58,18 +44,12 @@ export const submitAnnotation = (id, data) => {
  * @param {number} analysisId
  */
 export const getAnnotations = (analysisId) => {
-  return request({
-    url: `/imaging/${analysisId}/annotations`,
-    method: 'get'
-  })
+  return http.get(`/imaging/${analysisId}/annotations`)
 }
 
 /**
  * 获取可用模型列表
  */
 export const listModels = () => {
-  return request({
-    url: '/imaging/models/list',
-    method: 'get'
-  })
+  return http.get('/imaging/models/list')
 }
