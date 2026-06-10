@@ -146,9 +146,13 @@ def validate(model, loader, criterion, device):
         _, predicted = outputs.max(1)
         correct_top1 += predicted.eq(labels).sum().item()
 
-        # Top-5 (二分类时 top5 准确率始终是1)
-        _, top5_pred = outputs.topk(5, dim=1)
-        correct_top5 += top5_pred.eq(labels.view(-1, 1).expand_as(top5_pred)).any(dim=1).sum().item()
+        # Top-5 (二分类时 top5 准确率始终是1,如果batch小于5则只取min(5, batch_size))
+        k = min(5, outputs.size(1))
+        _, top5_pred = outputs.topk(k, dim=1)
+        # 处理 top-5 命中
+        for i in range(labels.size(0)):
+            if labels[i].item() in top5_pred[i].tolist():
+                correct_top5 += 1
 
         total += labels.size(0)
 
@@ -240,7 +244,6 @@ def main():
         optimizer,
         total_iters=decay_steps,
         power=0.9,
-        end_lr=0.0
     )
 
     # 训练循环

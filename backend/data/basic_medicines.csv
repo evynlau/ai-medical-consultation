@@ -1,0 +1,120 @@
+category,medication_id,medication_name,common_names,dosage_form,s规格,basic_insurance_class,payment_ratio,notes
+解热镇痛药,1,对乙酰氨基酚,扑热息痛、退热灵,片剂;口服混悬液,0.1g/片;0.5g/10ml,甲类,90%,常用儿童退烧药
+解热镇痛药,2,布洛芬,Ibuprofen,胶囊;混悬液,0.2g/粒;100mg/10ml,甲类,90%,抗炎作用较强
+解热镇痛药,3,双氯芬酸钠,Diclofenac Sodium,片剂;凝胶,50mg/片,乙类,80%,外用消炎止痛
+解热镇痛药,4,萘普生,Naproxen,片剂,0.25g/片,乙类,80%,长效NSAIDs
+镇痛药,5,曲马多,Tramadol,片剂;缓释片,50mg/片;100mg/150mg/200mg,乙类,80%,中度疼痛用药
+镇痛药,6,喷他佐辛,Pentazocine,片剂,25mg/50mg,乙类,80%,阿片类镇痛药
+解痉止痛药,7,山莨菪碱,Anisodamine,注射液;片剂,1mg/支;5mg/片,甲类,85%,胃肠痉挛
+解痉止痛药,8,东茛菪碱,Scopolamine,注射液;贴片,0.5mg/支,乙类,80%,晕动病
+心血管系统,9,硝苯地平,Nifedipine,片剂;缓释片;控释片,10mg;30mg/60mg/90mg;30mg/60mg,甲类,85%,CCB类降压药
+ cardiovascular system,10,氨氯地平,Amlodipine,片剂,5mg;10mg,乙类,80%,长效CCB
+ Cardiovascular system,11,硝苯地平控释片,Nifedipine GITS,控释片,30mg;60mg,甲类,85%,同类重复，优选缓释
+Cardiovascular system,12,卡托普利,Captopril,片剂,12.5mg;25mg,甲类,85%,ACEI类
+cardiovascular system,13,依那普利,Enalapril,片剂,5mg;10mg,甲类,85%,ACEI类
+Cardiovascular system,14,贝那普利,Benazepril,片剂,5mg;10mg;20mg,乙类,80%,ACEI类
+Cardiovascular system,15,氯沙坦钾,Losartan Potassium,片剂,50mg;100mg,乙类,80%,ARB类
+cardiovascular system,16,缬沙坦,Valsartan,片剂,80mg;160mg,乙类,80%,ARB类
+Cardiovascular system,17,厄贝沙坦,Irbesartan,片剂,75mg;150mg;300mg,乙类,80%,ARB类
+Cardiovascular system,18,美托洛尔,Metoprolol,片剂;缓释片,25mg;50mg;237.5mg,甲类,85%,β受体阻断剂
+cardiovascular system,19,阿替洛尔,Atenolol,片剂,12.5mg;25mg,甲类,85%,β受体阻断剂
+Cardiovascular system,20,比索洛尔,Bisoprolol,片剂,5mg;10mg,乙类,80%,β受体阻断剂
+Cardiovascular system,21,氢氯噻嗪,Hydrochlorothiazide,片剂,12.5mg;25mg,甲类,80%,利尿剂
+Cardiovascular system,22,氨氯地平缬沙坦组合,Amlopress,片剂,5mg/80mg;10mg/80mg,乙类,75%,复方制剂
+抗血小板药,23,阿司匹林,Aspirin,肠溶片,75mg;100mg;300mg,甲类,90%,心脑血管事件预防
+antiplatelet drugs,24,氯吡格雷,Clopidogrel,片剂,75mg,乙类,80%,PCI术后用药
+antiplatelet drugs,25,替格瑞洛,Ticagrelor,片剂,90mg,乙类,70%,急性冠脉综合征
+降脂药,26,辛伐他汀,Simvastatin,片剂,10mg;20mg;40mg,甲类,85%, heparin
+Lipid-lowering drugs,27,阿托伐他汀,Atorvastatin,片剂,10mg;20mg;40mg;80mg,乙类,80%,强效他汀
+lipid-lowering drugs,28,瑞舒伐他汀,Rosuvastatin,片剂,5mg;10mg;20mg,乙类,75%,强效他汀
+Lipid-lowering drugs,29,非诺贝特,Fenofibrate,微粒化胶囊,0.2g,乙类,80%,降甘油三酯
+内分泌系统,30,二甲双胍,Metformin,片剂;缓释片,0.25g/片;0.5g/片/1.0g,甲类,90%,一线降糖药
+endocrine system,31,格列本脲,Glibenclamide,片剂,2.5mg;5mg,乙类,80%,磺脲类
+Endocrine system,32,格列美脲,Glimepiride,片剂,1mg;2mg;4mg,乙类,80%,磺脲类
+endocrine system,33,格列齐特,Gliclazide,片剂,80mg,乙类,80%,磺脲类
+Endocrine system,34,西格列汀,Sitagliptin,片剂,100mg,乙类,75%,DPP-4抑制剂
+endocrine system,35,沙格列汀,Saxagliptin,片剂,5mg,乙类,75%,DPP-4抑制剂
+Endocrine system,36,达格列净,Dapagliflozin,片剂,10mg,乙类,70%,SGLT2抑制剂
+endocrine system,37,胰岛素（常规）,Regular Insulin,注射液,400单位/10ml,甲类,90%,短效胰岛素
+Endocrine system,38,精蛋白锌重组人胰岛素,Porcine Islet Cell Antibody,预混,30R;50R,乙类,85%,预混胰岛素
+endocrine system,39,门冬胰岛素,Insulin Aspart,注射液,100单位/ml,乙类,80%,速效胰岛素
+Endocrine system,40,左甲状腺素钠,Levothyroxine Sodium,片剂,25μg;50μg;75μg;100μg;150μg,甲类,90%,甲减用药
+digestive system,41,雷尼替丁,Ranitidine,片剂,0.15g;0.3g,甲类,85%,H2受体拮抗剂
+Digestive system,42,法莫替丁,Famotidine,片剂;注射液,10mg/片;20mg/支,甲类,85%,H2受体拮抗剂
+digestive system,43,奥美拉唑,Omeprazole,胶囊;肠溶片,10mg;20mg,乙类,80%,PPI类
+Digestive system,44,兰索拉唑,Lansoprazole,肠溶片,15mg;30mg,乙类,80%,PPI类
+digestive system,45,泮托拉唑,Pantoprazole,干混悬剂;注射液,40mg,乙类,80%,PPI类
+Digestive system,46,硫糖铝,Sucralfate,混悬液;片剂,1g/5ml;0.25g/片,甲类,85%,胃黏膜保护
+digestive system,47,枸橼酸铋钾,Bismuth Potassium Citrate,胶囊,0.3g,乙类,80%,幽门螺杆菌治疗
+Digestive system,48,多潘立酮,Domperidone,片剂;混悬液,10mg/片,乙类,80%,促胃肠动力
+digestive system,49,蒙脱石散,Smectite,散剂,3g/袋,乙类,85%,止泻药
+Digestive system,50,乳果糖,Lactulose,口服溶液,10g/15ml,乙类,80%,通便药
+respiratory system,51,沙丁胺醇,Salbutamol,气雾剂;吸入溶液,100μg/吸,乙类,80%,支气管扩张
+Respiratory system,52,特布他林,Terbutaline,气雾剂;片剂,5mg/片,乙类,80%,支气管扩张
+respiratory system,53,布地奈德,Budesonide,吸入气雾剂;干粉吸入剂,100μg/吸,乙类,80%,糖皮质激素
+Respiratory system,54,氨溴索,Aminomethylbenzoic Acid,口服液;片剂,15mg/10ml;30mg/片,乙类,80%,祛痰药
+Respiratory system,55,羧甲司坦,Methycysteine,片剂;口服液,0.25g/片,乙类,80%,祛痰药
+antihistamines,56,氯苯那敏,Chlorpheniramine,片剂,4mg,甲类,85%,第一代抗组胺
+Antihistamines,57,西替利嗪,Cetirizine,片剂;口服液,10mg/片,乙类,80%,第二代抗组胺
+antihistamines,58,氯雷他定,Loratadine,片剂;口服液,10mg/片,乙类,80%,第二代抗组胺
+Antihistamines,59,地氯雷他定,Desloratadine,片剂,5mg;10mg,乙类,75%,第三代抗组胺
+antibiotics,60,阿莫西林,Amoxicillin,胶囊;颗粒;注射液,0.25g/0.5g,甲类,85%,青霉素类
+Antibiotics,61,阿莫西林克拉维酸钾,Amoxicillin-Clavulanate,片剂;分散片,7:1;14:1,乙类,80%,复方抗生素
+antibiotics,62,头孢氨苄,Cefalexin,胶囊;片剂,0.25g/0.5g,乙类,80%,第一代头孢
+Antibiotics,63,头孢克洛,Cefaclor,干混悬剂;片剂,125mg/5ml;0.25g,乙类,80%,第二代头孢
+antibiotics,64,头孢呋辛酯,Cefuroxime Axetil,片剂,0.25g,乙类,80%,第二代头孢
+Antibiotics,65,头孢曲松,Ceftriaxone,注射液,1g/瓶,甲类,90%,第三代头孢
+antibiotics,66,头孢噻肟,Cefotaxime,注射液,1g/瓶,甲类,90%,第三代头孢
+Antibiotics,67,左氧氟沙星,Levofloxacin,片剂;注射液,0.1g;0.5g,乙类,80%,喹诺酮类
+antibiotics,68,莫西沙星,Moxifloxacin,片剂;注射液,400mg,乙类,75%,喹诺酮类
+Antibiotics,69,红霉素,Erythromycin,片剂;软膏,25万U/40万U,甲类,85%,大环内酯类
+antibiotics,70,阿奇霉素,Azithromycin,胶囊;颗粒;注射液,0.25g/0.5g,乙类,80%,大环内酯类
+Antibiotics,71,克拉霉素,Clarithromycin,片剂,0.25g,乙类,80%,大环内酯类
+Antibiotics,72,甲硝唑,Metronidazole,片剂;注射液,0.2g/0.5g,甲类,85%,抗厌氧菌
+antibiotics,73,替硝唑,Tinidazole,片剂;注射液,0.5g,乙类,80%,抗厌氧菌
+antiviral,74,奥司他韦,Oseltamivir,胶囊,75mg,乙类,70%,抗流感病毒
+Antiparasitic,75,阿苯达唑,Albendazole,片剂;混悬液,200mg/片,乙类,80%,驱虫药
+vitamins,76,维生素B1,Thiamine,片剂,10mg;20mg,甲类,90%,脚气病防治
+Vitamins,77,维生素B2,Riboflavin,片剂,5mg/10mg,甲类,90%,口角炎防治
+vitamins,78,维生素C,Ascorbic Acid,片剂;泡腾片,0.1g/0.2g,甲类,90%,抗氧化
+Vitamins,79,维生素D3,Cholecalciferol,胶囊;滴剂,400IU/粒,乙类,85%,佝偻病防治
+vitamins,80,复合维生素B,B-complex,片剂,含B1/B2/B6,甲类,85%,营养补充
+minerals,81,葡萄糖酸钙,Calcium Gluconate,口服液;注射液,10%溶液,甲类,85%,补钙
+Minerals,82,碳酸钙,Calcium Carbonate,片剂,0.5g/片（含钙40%）,乙类,80%,补钙
+minerals,83,乳酸钙,Lactic Acid Calcium,片剂;口服液,0.5g/片,甲类,85%,补钙
+Minerals,84,葡萄糖酸锌,Zinc Gluconate,片剂;口服液,10mg/片,乙类,80%,免疫调节
+orthopedics,85,骨化醇,Alfacrol,胶囊,0.25μg;0.5μg,乙类,80%,骨质疏松
+Orthopedics,86,阿法骨化醇,Alfacalcidol,胶囊,0.25μg/0.5μg,乙类,80%,骨质疏松
+orthopedics,87,仙灵骨葆片,Xianling Gubao,片剂,薄膜衣片,乙类,80%,中成药骨科
+Orthopedics,88,独活寄生合剂,Duhuo Jisheng,合剂,10ml/支,乙类,80%,中成药骨科
+gynecology,89,黄体酮,Progesterone,注射液;胶囊,10mg/支;100mg/粒,乙类,80%,黄体支持
+Gynecology,90,益母草膏,Yimucao Gel,膏剂,每瓶100g,乙类,85%,产后调理
+ophthalmology,91,氯霉素,Chloramphenicol,滴眼液;眼膏,0.25g/10ml;1万单位/g,甲类,85%,抗菌眼药
+Ophthalmology,92,红霉素,Erythromycin,眼膏,1万单位/g,甲类,85%,抗菌眼药
+ophthalmology,93,氧氟沙星,Ofloxacin,滴眼液,0.3%溶液,乙类,80%,抗菌眼药
+Ophthalmology,94,阿昔洛韦,Acyclovir,眼膏,3%溶液,乙类,75%,抗病毒眼药
+topical medications,95,碘伏,Iodophor,溶液,1%;5%,甲类,85%,皮肤消毒
+Topical medications,96,酒精,Alcohol,溶液,75%,甲类,85%,皮肤消毒
+topical medications,97,生理盐水,Sodium Chloride Solution,冲洗液,0.9% 250ml,甲类,90%,伤口冲洗
+Topical medications,98,复方黄柏涂剂,Fufang Huangbo,Tincture,每ml含药材相当于原生药...,乙类,80%,清热解毒
+topical medications,99,京万红软膏,Jingwan Hong,Ointment,30g/支,乙类,80%,烫伤烧伤
+Topical medications,100,烫伤烧伤膏,Burn Ointment,20g/支,乙类,80%,烫伤烧伤
+emergency drugs,101,硝酸甘油,Nitroglycerin,片剂,0.5mg/片,甲类,90%,心绞痛急救
+Emergency drugs,102,肾上腺素,Epinephrine,注射液,1mg/1ml,甲类,95%,过敏性休克
+emergency drugs,103,异丙肾上腺素,Isoprenaline,气雾剂;注射液,0.1g/瓶;1mg/2ml,乙类,85%,支气管哮喘
+Emergency drugs,104,地塞米松,Dexamethasone,注射液;片剂,5mg/支;0.75mg/片,甲类,90%,抗过敏抗炎
+emergency drugs,105,甘露醇,Mannitol,注射液,20% 250ml,甲类,90%,降颅压
+Traditional Chinese Medicine,106,连花清瘟胶囊,Lianhua Qingwen,胶囊,0.35g/粒,乙类,80%,感冒用药
+Traditional Chinese Medicine,107,血府逐瘀胶囊,Xuefu Zhuyu,胶囊,0.42g/粒,乙类,80%,活血化瘀
+traditional Chinese medicine,108,复方丹参滴丸,Fufang Danshen,Drops,1.48mg/丸,乙类,85%,心脑血管
+Traditional Chinese Medicine,109,小柴胡颗粒,Xiao Chaihu,颗粒,10g/袋,乙类,85%,解表散热
+traditional Chinese medicine,110,保和丸,Baohe,丸剂,6g/袋,甲类,80%,消食导滞
+Traditional Chinese Medicine,111,四君子颗粒,Sijunzi,颗粒,15g/袋,乙类,80%,健脾益气
+vitamins_other,112,维生素E,Tocopherol,胶囊,100mg/粒,乙类,80%,抗氧化
+Vitamins_other,113,维生素B6,Pyridoxine,片剂,10mg/片,甲类,85%,神经调节
+vitamins_other,114,叶酸,Folic Acid,片剂,0.4mg/片;5mg/片,甲类,90%,贫血防治、孕期补充
+minerals_other,115,硫酸亚铁,Ferrous Sulfate,片剂,0.3g/片（含铁60mg）,甲类,85%,缺铁性贫血
+Minerals_other,116,富马酸亚铁,Ferrous Fumarate,片剂,0.2g/片（含铁65mg),乙类,80%,缺铁性贫血
+minerals_other,117,葡萄糖酸亚铁,Ferrous Gluconate,口服液,10ml:0.3g,乙类,80%,缺铁性贫血
+antidiarrheal,118,洛哌丁胺,Loperamide,胶囊,2mg/粒,乙类,80%,急性腹泻
+Antidiarrheal,119,口服补液盐,Oral Rehydration Salts,散剂,包装量13.95g（Ⅰ号）,甲类,90%,腹泻补液

@@ -9,6 +9,10 @@ from app.services.imaging.gradcam import (
     heatmap_to_image,
     heatmap_to_base64_raw,
 )
+from app.services.imaging.lung_segmentation import (
+    segment_lungs,
+    get_lung_segmenter,
+)
 
 __all__ = [
     "PneumoniaService",
@@ -17,4 +21,6 @@ __all__ = [
     "heatmap_to_base64",
     "heatmap_to_image",
     "heatmap_to_base64_raw",
+    "segment_lungs",
+    "get_lung_segmenter",
 ]
