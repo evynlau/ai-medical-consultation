@@ -60,17 +60,25 @@ async def analyze_pneumonia(
     consultation_id: Optional[int] = Form(None),
     include_gradcam: bool = Form(True),
     gradcam_method: str = Form("hirescam", description="热力图算法: hirescam 或 gradcam"),
+    target_classes: str = Form("Pneumonia", description="要高亮的病理列表,逗号分隔,默认 Pneumonia"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_doctor_user),
 ):
-    """上传胸片,AI辅助分析肺炎
+    """上传胸片,AI 多标签辅助分析
 
     支持的影像类型: JPEG, PNG
     限制: 10MB
 
     gradcam_method:
-        - hirescam: 空间分辨率更高，边界更清晰（推荐）
-        - gradcam: 经典算法，兼容性好
+        - hirescam: 空间分辨率更高,边界更清晰(推荐)
+        - gradcam: 经典算法,兼容性好
+
+    target_classes:
+        - 逗号分隔的病理名,默认 "Pneumonia"
+        - 可选 18 类: Atelectasis, Consolidation, Infiltration, Pneumothorax, Edema,
+          Emphysema, Fibrosis, Effusion, Pneumonia, Pleural_Thickening, Cardiomegaly,
+          Nodule, Mass, Hernia, Lung Lesion, Fracture, Lung Opacity, Enlarged Cardiomediastinum
+        - 例: "Pneumonia,Infiltration,Effusion" 同时生成 3 张热力图
     """
     # 验证文件类型
     if file.content_type not in ["image/jpeg", "image/jpg", "image/png"]:
@@ -85,17 +93,29 @@ async def analyze_pneumonia(
     if gradcam_method not in ("hirescam", "gradcam"):
         gradcam_method = "hirescam"
 
+    # 解析 target_classes -> 索引列表
+    # 热力图默认走 all-model (18 维多标签)
+    service = get_pneumonia_service()
+    multi_pathologies = service._xrv_multi.pathologies
+    pathology_to_idx = {p: i for i, p in enumerate(multi_pathologies) if p}
+
+    requested = [c.strip() for c in target_classes.split(",") if c.strip()]
+    target_idxs = []
+    for name in requested:
+        if name in pathology_to_idx:
+            target_idxs.append(pathology_to_idx[name])
+    if not target_idxs:
+        target_idxs = [pathology_to_idx["Pneumonia"]]  # 兜底
+
     # AI 推理
     try:
-        service = get_pneumonia_service()
         if include_gradcam:
             result = service.predict_from_bytes_with_gradcam(
-                contents, method=gradcam_method
+                contents, method=gradcam_method,
+                target_class_idxs=target_idxs, cam_source="multi",
             )
-            heatmap = result.get("gradcam_raw")
         else:
             result = service.predict_from_bytes(contents)
-            heatmap = None
     except Exception as e:
         logger.error(f"影像分析失败: {e}")
         raise HTTPException(500, f"AI 分析失败: {str(e)}")
@@ -128,9 +148,18 @@ async def analyze_pneumonia(
         "model_version": result["model_version"],
         "inference_time_ms": result.get("inference_time_ms"),
         "gradcam_method": gradcam_method if include_gradcam else None,
-        "gradcam": result.get("gradcam"),  # 已叠加的热力图(原图+热度)
-        "gradcam_raw": result.get("gradcam_raw"),  # 仅热力图(透明PNG,用于前端叠加)
-        "original_image": result.get("original_image"),  # 原始图像 base64
+        # 多热力图列表(每个病理一张)
+        "gradcams": result.get("gradcams", []),
+        "gradcam_target_classes": requested,
+        # 兼容旧字段
+        "gradcam": result.get("gradcam"),
+        "gradcam_raw": result.get("gradcam_raw"),
+        # 18 维全报告 (主模型 RSNA)
+        "all_pathology_scores": result.get("all_pathology_scores", {}),
+        # 18 维全报告 (多标签 all-model)
+        "multi_pathology_scores": result.get("multi_pathology_scores", {}),
+        "top_findings": result.get("top_findings", []),
+        "original_image": result.get("original_image"),
         "original_image_size": result.get("original_image_size"),
         "warnings": [
             "本结果仅供医生参考,不作为最终诊断依据",

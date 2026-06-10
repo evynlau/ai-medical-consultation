@@ -76,6 +76,22 @@
                 HiResCAM 空间分辨率更高，边界更清晰
               </span>
             </el-form-item>
+            <el-form-item v-if="form.include_gradcam" label="高亮病理">
+              <el-checkbox-group v-model="form.target_classes" :max="6">
+                <el-checkbox
+                  v-for="p in PATHOLOGIES"
+                  :key="p.en"
+                  :value="p.en"
+                  :label="p.en"
+                >
+                  {{ p.cn }}
+                  <span class="pathology-en">{{ p.en }}</span>
+                </el-checkbox>
+              </el-checkbox-group>
+              <div class="form-hint">
+                勾选要同时生成热力图的病理(最多 6 个),每张热力图都限制在双肺内
+              </div>
+            </el-form-item>
             <el-form-item>
               <el-button
                 type="primary"
@@ -155,6 +171,13 @@
               <el-tag size="small" type="success">
                 推理耗时: {{ result.inference_time_ms }}ms
               </el-tag>
+              <el-tag
+                v-if="result.lung_mask_applied"
+                size="small"
+                type="warning"
+              >
+                已应用 PSPNet 肺部分割
+              </el-tag>
             </div>
           </el-card>
         </el-col>
@@ -210,6 +233,55 @@
               </div>
             </div>
 
+            <!-- 18 维全病理报告 (主模型 RSNA + 多标签 all-model) -->
+            <div v-if="result.multi_pathology_scores || result.all_pathology_scores" class="multi-report">
+              <h5>
+                18 维多标签报告
+                <el-tag size="small" type="info" style="margin-left: 6px">torchxrayvision</el-tag>
+              </h5>
+              <div class="pathology-grid">
+                <div
+                  v-for="(info, key) in (result.multi_pathology_scores || result.all_pathology_scores)"
+                  :key="key"
+                  class="pathology-cell"
+                  :class="{ positive: info.positive, selected: form.target_classes.includes(key) }"
+                >
+                  <div class="pathology-cell-name">
+                    {{ info.label_cn || key }}
+                    <span class="pathology-cell-en">{{ key }}</span>
+                  </div>
+                  <div class="pathology-cell-bar">
+                    <el-progress
+                      :percentage="(info.probability * 100)"
+                      :stroke-width="6"
+                      :show-text="false"
+                      :color="info.positive ? '#f56c6c' : '#67c23a'"
+                    />
+                  </div>
+                  <div class="pathology-cell-meta">
+                    <span :class="info.positive ? 'pos' : 'neg'">
+                      {{ (info.probability * 100).toFixed(1) }}%
+                    </span>
+                    <span class="thresh">阈值 {{ (info.threshold * 100).toFixed(0) }}%</span>
+                  </div>
+                </div>
+              </div>
+              <div v-if="result.top_findings && result.top_findings.length" class="top-findings">
+                <el-icon><Aim /></el-icon>
+                <span>Top 发现: </span>
+                <el-tag
+                  v-for="f in result.top_findings"
+                  :key="f"
+                  size="small"
+                  type="danger"
+                  effect="dark"
+                  style="margin-left: 4px"
+                >
+                  {{ PATHOLOGY_LABELS_CN_MAP[f] || f }}
+                </el-tag>
+              </div>
+            </div>
+
             <!-- 关注区域说明 -->
             <div v-if="attentionHint" class="attention-hint">
               <el-icon><Aim /></el-icon>
@@ -218,6 +290,63 @@
           </el-card>
         </el-col>
       </el-row>
+
+      <!-- 多热力图展示: 每个勾选病理一张 -->
+      <el-card
+        v-if="result.gradcams && result.gradcams.length > 1"
+        shadow="never"
+        class="multi-gradcam-card"
+        style="margin-top: 24px"
+      >
+        <template #header>
+          <div class="card-header">
+            <h4>
+              <el-icon><Aim /></el-icon>
+              多病理 AI 关注区域 ({{ result.gradcams.length }} 张热力图)
+            </h4>
+            <el-button size="small" @click="openMultiFullscreen">
+              <el-icon><FullScreen /></el-icon>
+              全屏对比
+            </el-button>
+          </div>
+        </template>
+
+        <el-row :gutter="16">
+          <el-col
+            v-for="(g, idx) in result.gradcams"
+            :key="g.pathology"
+            :xs="24" :sm="12" :md="8"
+          >
+            <div class="multi-gradcam-item">
+              <div class="multi-gradcam-header">
+                <div>
+                  <span class="multi-gradcam-cn">{{ g.label_cn }}</span>
+                  <span class="multi-gradcam-en">{{ g.pathology }}</span>
+                </div>
+                <el-tag
+                  :type="g.positive ? 'danger' : 'success'"
+                  size="small"
+                >
+                  {{ (g.probability * 100).toFixed(1) }}%
+                </el-tag>
+              </div>
+              <ImageViewer
+                :src="originalImageUrl || result.original_image"
+                :overlay-src="g.gradcam_raw"
+                :overlay-opacity="0.5"
+                :alt="`${g.label_cn} 热力图`"
+                placeholder-text="无"
+              />
+              <div class="multi-gradcam-meta">
+                <span class="thresh-text">阈值 {{ (g.threshold * 100).toFixed(0) }}%</span>
+                <span :class="g.positive ? 'pos' : 'neg'">
+                  {{ g.positive ? '阳性' : '阴性' }}
+                </span>
+              </div>
+            </div>
+          </el-col>
+        </el-row>
+      </el-card>
 
       <!-- 医生标注 -->
       <el-card shadow="never" class="annotation-card">
@@ -413,7 +542,37 @@ const form = reactive({
   consultation_id: null,
   include_gradcam: true,
   gradcam_method: 'hirescam',
+  // 多选病理热力图 (默认勾选肺炎/浸润/积液 - 胸片最常见 3 类)
+  target_classes: ['Pneumonia', 'Infiltration', 'Effusion'],
 })
+
+// 18 类病理全列表 (torchxrayvision)
+const PATHOLOGIES = [
+  { en: 'Atelectasis', cn: '肺不张' },
+  { en: 'Consolidation', cn: '实变' },
+  { en: 'Infiltration', cn: '浸润' },
+  { en: 'Pneumothorax', cn: '气胸' },
+  { en: 'Edema', cn: '肺水肿' },
+  { en: 'Emphysema', cn: '肺气肿' },
+  { en: 'Fibrosis', cn: '肺纤维化' },
+  { en: 'Effusion', cn: '胸腔积液' },
+  { en: 'Pneumonia', cn: '肺炎' },
+  { en: 'Pleural_Thickening', cn: '胸膜增厚' },
+  { en: 'Cardiomegaly', cn: '心影增大' },
+  { en: 'Nodule', cn: '结节' },
+  { en: 'Mass', cn: '肿块' },
+  { en: 'Hernia', cn: '膈疝' },
+  { en: 'Lung Lesion', cn: '肺内病变' },
+  { en: 'Fracture', cn: '骨折' },
+  { en: 'Lung Opacity', cn: '肺浑浊' },
+  { en: 'Enlarged Cardiomediastinum', cn: '纵隔增宽' },
+]
+
+// 病理英文 -> 中文 映射(供 top_findings 等场景)
+const PATHOLOGY_LABELS_CN_MAP = PATHOLOGIES.reduce((acc, p) => {
+  acc[p.en] = p.cn
+  return acc
+}, {})
 
 const annotationForm = reactive({
   agreement: null,
@@ -465,6 +624,11 @@ const startAnalysis = async () => {
     formData.append('include_gradcam', form.include_gradcam)
     if (form.include_gradcam) {
       formData.append('gradcam_method', form.gradcam_method)
+      if (form.target_classes && form.target_classes.length) {
+        formData.append('target_classes', form.target_classes.join(','))
+      } else {
+        formData.append('target_classes', 'Pneumonia')
+      }
     }
 
     const data = await analyzePneumonia(formData)
@@ -822,5 +986,152 @@ const resetAll = () => {
       );
     }
   }
+}
+
+/* 多选病理复选框网格 */
+:deep(.el-checkbox-group) {
+  display: grid !important;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px 16px;
+
+  .el-checkbox {
+    margin-right: 0 !important;
+    margin-left: 0 !important;
+    .pathology-en {
+      margin-left: 4px;
+      color: #909399;
+      font-size: 11px;
+    }
+  }
+}
+
+/* 18 维多标签报告 */
+.multi-report {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #ebeef5;
+
+  h5 {
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    color: #303133;
+  }
+}
+
+.pathology-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px 10px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.pathology-cell {
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: #f8f9fb;
+  border: 1px solid transparent;
+  transition: all 0.2s;
+  font-size: 12px;
+
+  &.positive {
+    background: #fef0f0;
+    border-color: #fbc4c4;
+  }
+
+  &.selected {
+    border-color: #409eff;
+    box-shadow: 0 0 0 1px #409eff inset;
+  }
+}
+
+.pathology-cell-name {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 500;
+  color: #303133;
+
+  .pathology-cell-en {
+    color: #909399;
+    font-size: 10px;
+    font-weight: 400;
+  }
+}
+
+.pathology-cell-bar {
+  margin: 4px 0;
+}
+
+.pathology-cell-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+
+  .pos { color: #f56c6c; font-weight: 600; }
+  .neg { color: #67c23a; }
+  .thresh { color: #909399; }
+}
+
+.top-findings {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 13px;
+  color: #606266;
+}
+
+/* 多热力图网格 */
+.multi-gradcam-card {
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+}
+
+.multi-gradcam-item {
+  margin-bottom: 16px;
+  padding: 12px;
+  background: #fafbfc;
+  border-radius: 6px;
+  border: 1px solid #ebeef5;
+}
+
+.multi-gradcam-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.multi-gradcam-cn {
+  font-weight: 600;
+  color: #303133;
+}
+
+.multi-gradcam-en {
+  margin-left: 6px;
+  color: #909399;
+  font-size: 11px;
+}
+
+.multi-gradcam-meta {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 11px;
+
+  .thresh-text { color: #909399; }
+  .pos { color: #f56c6c; font-weight: 600; }
+  .neg { color: #67c23a; }
+}
+
+/* 复选框容器占满 */
+:deep(.el-form-item__content .el-checkbox-group) {
+  width: 100%;
 }
 </style>
