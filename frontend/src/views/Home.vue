@@ -71,6 +71,8 @@ const chatStore = useChatStore()
 
 const features = [
   { title: '智能问诊', desc: '多轮对话收集症状,AI 分析可能病因', icon: 'ChatLineSquare', bg: 'linear-gradient(135deg, #409EFF, #2c7be5)' },
+  { title: '影像分析', desc: 'AI 辅助识别胸片病灶,Grad-CAM 可视化', icon: 'Picture', bg: 'linear-gradient(135deg, #9c27b0, #7b1fa2)' },
+  { title: 'OCR 识别', desc: '处方/检查报告智能识别与结构化', icon: 'Files', bg: 'linear-gradient(135deg, #00bcd4, #0097a7)' },
   { title: '知识库检索', desc: '基于向量数据库的医学知识精准检索', icon: 'Reading', bg: 'linear-gradient(135deg, #67C23A, #5daf34)' },
   { title: '智能分诊', desc: '根据症状推荐就诊科室,判断紧急程度', icon: 'Files', bg: 'linear-gradient(135deg, #E6A23C, #cf9236)' },
   { title: '诊断建议', desc: '给出可能病因、检查建议、护理指导', icon: 'Document', bg: 'linear-gradient(135deg, #F56C6C, #dd6161)' },

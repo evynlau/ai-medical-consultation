@@ -38,6 +38,19 @@ const routes = [
     component: () => import('@/views/ocr/OCR.vue'),
     meta: { title: 'OCR 识别' }
   },
+  // ============== 影像分析 ==============
+  {
+    path: '/imaging',
+    name: 'imaging',
+    component: () => import('@/views/Imaging/Analysis.vue'),
+    meta: { title: 'AI 影像分析', auth: true }
+  },
+  {
+    path: '/imaging/history',
+    name: 'imaging-history',
+    component: () => import('@/views/Imaging/History.vue'),
+    meta: { title: '影像分析历史', auth: true }
+  },
   {
     path: '/login',
     name: 'login',
@@ -54,7 +67,8 @@ const routes = [
       { path: 'consultations', component: () => import('@/views/admin/Consultations.vue'), meta: { title: '问诊管理' } },
       { path: 'emergency', component: () => import('@/views/admin/Emergency.vue'), meta: { title: '紧急看板' } },
       { path: 'knowledge', component: () => import('@/views/admin/KnowledgeAdmin.vue'), meta: { title: '知识库管理' } },
-      { path: 'users', component: () => import('@/views/admin/Users.vue'), meta: { title: '用户管理' } }
+      { path: 'users', component: () => import('@/views/admin/Users.vue'), meta: { title: '用户管理' } },
+      { path: 'imaging', component: () => import('@/views/Imaging/History.vue'), meta: { title: '影像分析管理' } }
     ]
   },
   {

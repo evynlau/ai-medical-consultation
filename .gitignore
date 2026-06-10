@@ -70,6 +70,9 @@ dist-ssr/
 backend/data/*.db
 backend/data/*.db-journal
 backend/data/faiss_index/
+backend/data/chest_xray/ # 影像数据集(本地运行时下载)
+backend/checkpoints/*.pth # 模型权重(体积大,不入库)
+backend/checkpoints/*.onnx
 
 # 上传的医学图片(若以后有)
 *.png

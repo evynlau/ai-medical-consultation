@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     # 客户端超时(秒),给 LLM 充分思考时间
     API_RESPONSE_TIMEOUT: int = 180
 
+    # 影像分析配置
+    PNEUMONIA_MODEL_PATH: str = "./checkpoints/pneumonia_resnet50.pth"
+    IMAGING_MAX_FILE_SIZE_MB: int = 10
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=True,
