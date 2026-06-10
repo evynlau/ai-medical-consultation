@@ -151,6 +151,34 @@ def heatmap_to_base64(heatmap: np.ndarray, original_size: tuple, opacity: float 
     return f"data:image/png;base64,{img_str}"
 
 
+def heatmap_to_base64_raw(heatmap: np.ndarray) -> str:
+    """将热力图(彩色,无叠加)转为 base64,用于前端独立叠加显示
+
+    Args:
+        heatmap: 热力图数组 (H, W), 值范围 0-255
+
+    Returns:
+        Base64 编码的图片 (PNG, RGBA 通道)
+    """
+    # 应用颜色映射 (JET)
+    heatmap_colored = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
+    # BGR -> RGB
+    heatmap_colored = cv2.cvtColor(heatmap_colored, cv2.COLOR_BGR2RGB)
+    # 添加 alpha 通道(用于透明度叠加)
+    h, w = heatmap.shape
+    rgba = np.zeros((h, w, 4), dtype=np.uint8)
+    rgba[..., :3] = heatmap_colored
+    rgba[..., 3] = heatmap  # alpha 由热力图强度决定
+
+    img = Image.fromarray(rgba, mode="RGBA")
+
+    buffered = io.BytesIO()
+    img.save(buffered, format="PNG")
+    img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+
+    return f"data:image/png;base64,{img_str}"
+
+
 def heatmap_to_image(heatmap: np.ndarray, original_size: tuple, opacity: float = 0.4) -> bytes:
     """将热力图叠加到原图，返回 PNG 字节
 

@@ -114,7 +114,10 @@ async def analyze_pneumonia(
         "confidence": result["confidence"],
         "model_version": result["model_version"],
         "inference_time_ms": result.get("inference_time_ms"),
-        "gradcam": result.get("gradcam"),
+        "gradcam": result.get("gradcam"),  # 已叠加的热力图(原图+热度)
+        "gradcam_raw": result.get("gradcam_raw"),  # 仅热力图(透明PNG,用于前端叠加)
+        "original_image": result.get("original_image"),  # 原始图像 base64
+        "original_image_size": result.get("original_image_size"),
         "warnings": [
             "本结果仅供医生参考,不作为最终诊断依据",
             "请结合临床症状和其他检查综合判断",

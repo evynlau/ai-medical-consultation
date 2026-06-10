@@ -97,19 +97,46 @@
             <el-row :gutter="16">
               <el-col :span="12">
                 <div class="image-label">原始影像</div>
-                <div class="image-wrapper">
-                  <img
-                    :src="originalImageUrl"
-                    alt="原始胸片"
-                    class="preview-image"
-                  />
-                </div>
+                <ImageViewer
+                  :src="originalImageUrl"
+                  :overlay-src="result.gradcam_raw && viewMode === 'overlay' ? result.gradcam_raw : ''"
+                  :overlay-opacity="overlayOpacity"
+                  alt="原始胸片"
+                  placeholder-text="请上传影像"
+                />
               </el-col>
               <el-col :span="12">
                 <div class="image-label">AI 关注区域</div>
-                <GradCAM :src="result.gradcam" />
+                <ImageViewer
+                  :src="result.gradcam"
+                  alt="热力图"
+                  placeholder-text="暂无热力图"
+                />
               </el-col>
             </el-row>
+
+            <div class="view-mode-bar">
+              <el-radio-group v-model="viewMode" size="small">
+                <el-radio-button label="side-by-side">并排对比</el-radio-button>
+                <el-radio-button label="overlay">叠加显示</el-radio-button>
+                <el-radio-button label="separate">分别显示</el-radio-button>
+              </el-radio-group>
+              <div v-if="viewMode === 'overlay'" class="opacity-control">
+                <span>热力图透明度</span>
+                <el-slider
+                  v-model="overlayOpacity"
+                  :min="10"
+                  :max="100"
+                  :step="5"
+                  style="width: 120px; margin: 0 12px;"
+                />
+                <span>{{ overlayOpacity }}%</span>
+              </div>
+              <el-button size="small" @click="openFullscreen">
+                <el-icon><FullScreen /></el-icon>
+                全屏对比
+              </el-button>
+            </div>
 
             <div class="image-meta">
               <el-tag size="small">文件名:{{ result.image_filename || 'N/A' }}</el-tag>
@@ -252,6 +279,102 @@
         </el-button>
       </div>
     </div>
+
+    <!-- 全屏对比对话框 -->
+    <el-dialog
+      v-model="showFullscreen"
+      title="影像全屏对比"
+      width="95%"
+      top="2vh"
+      :show-close="true"
+      destroy-on-close
+    >
+      <div v-if="result" class="fullscreen-container">
+        <div class="fullscreen-toolbar">
+          <el-radio-group v-model="viewMode" size="default">
+            <el-radio-button label="side-by-side">并排对比</el-radio-button>
+            <el-radio-button label="overlay">叠加显示</el-radio-button>
+            <el-radio-button label="separate">分别显示</el-radio-button>
+          </el-radio-group>
+          <div v-if="viewMode === 'overlay'" class="opacity-control">
+            <span>热力图透明度</span>
+            <el-slider
+              v-model="overlayOpacity"
+              :min="10"
+              :max="100"
+              :step="5"
+              style="width: 160px; margin: 0 12px;"
+            />
+            <span>{{ overlayOpacity }}%</span>
+          </div>
+        </div>
+
+        <div
+          v-if="viewMode === 'side-by-side'"
+          class="fullscreen-images"
+        >
+          <div class="fullscreen-image-pane">
+            <h4>原始影像</h4>
+            <ImageViewer
+              :src="originalImageUrl || result.original_image"
+              alt="原始胸片"
+            />
+          </div>
+          <div class="fullscreen-image-pane">
+            <h4>AI 关注区域 (热力图)</h4>
+            <ImageViewer
+              :src="result.gradcam"
+              alt="热力图"
+            />
+          </div>
+        </div>
+
+        <div
+          v-else-if="viewMode === 'overlay'"
+          class="fullscreen-overlay"
+        >
+          <h4>原图 + AI 关注区域叠加</h4>
+          <ImageViewer
+            :src="originalImageUrl || result.original_image"
+            :overlay-src="result.gradcam_raw"
+            :overlay-opacity="overlayOpacity / 100"
+            alt="叠加对比"
+          />
+          <div class="overlay-legend">
+            <span class="legend-label">低关注</span>
+            <div class="legend-gradient"></div>
+            <span class="legend-label">高关注</span>
+          </div>
+        </div>
+
+        <div
+          v-else
+          class="fullscreen-images"
+        >
+          <div class="fullscreen-image-pane">
+            <h4>原始影像</h4>
+            <ImageViewer
+              :src="originalImageUrl || result.original_image"
+              alt="原始胸片"
+            />
+          </div>
+          <div class="fullscreen-image-pane">
+            <h4>AI 关注区域</h4>
+            <ImageViewer
+              :src="result.gradcam_raw"
+              alt="热力图(原始)"
+            />
+          </div>
+          <div class="fullscreen-image-pane">
+            <h4>已叠加(原图+热度)</h4>
+            <ImageViewer
+              :src="result.gradcam"
+              alt="叠加图"
+            />
+          </div>
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -261,15 +384,20 @@ import { ElMessage } from 'element-plus'
 import {
   Picture, Clock, Upload, Aim, DataAnalysis, EditPen,
   CircleCheck, CircleClose, Warning, Check, Refresh,
+  FullScreen,
 } from '@element-plus/icons-vue'
 import { analyzePneumonia, submitAnnotation as submitAnnotationApi } from '@/api/imaging'
-import GradCAM from '@/components/GradCAM.vue'
+import ImageViewer from '@/components/ImageViewer.vue'
 
 const fileList = ref([])
 const originalImageUrl = ref('')
 const analyzing = ref(false)
 const submitting = ref(false)
 const result = ref(null)
+
+// 显示模式: side-by-side(并排) | overlay(叠加) | separate(分别)
+const viewMode = ref('side-by-side')
+const overlayOpacity = ref(50)
 
 const form = reactive({
   patient_id: null,
@@ -363,6 +491,16 @@ const resetUpload = () => {
   originalImageUrl.value = ''
 }
 
+// 全屏对比模式
+const showFullscreen = ref(false)
+const openFullscreen = () => {
+  if (!result.value) {
+    ElMessage.warning('请先上传影像')
+    return
+  }
+  showFullscreen.value = true
+}
+
 const resetAll = () => {
   resetUpload()
   result.value = null
@@ -442,6 +580,13 @@ const resetAll = () => {
     gap: 8px;
     flex-wrap: wrap;
     justify-content: center;
+  }
+}
+
+// ==================== 显示模式样式 ====================
+.image-card :deep(.el-row) {
+  .image-label {
+    margin-bottom: 8px;
   }
 }
 
@@ -538,5 +683,131 @@ const resetAll = () => {
   display: flex;
   justify-content: center;
   gap: 12px;
+}
+
+// ==================== 影像显示模式栏 ====================
+.view-mode-bar {
+  margin-top: 12px;
+  padding: 12px;
+  background: #f5f7fa;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+
+  .opacity-control {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 13px;
+    color: #606266;
+  }
+}
+
+// ==================== 全屏对比样式 ====================
+.fullscreen-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 80vh;
+}
+
+.fullscreen-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 12px;
+  background: #f5f7fa;
+  border-radius: 6px;
+  flex-shrink: 0;
+
+  .opacity-control {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 13px;
+    color: #606266;
+  }
+}
+
+.fullscreen-images {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: 16px;
+  min-height: 0;
+}
+
+.fullscreen-image-pane {
+  display: flex;
+  flex-direction: column;
+  background: #fafbfc;
+  border-radius: 8px;
+  overflow: hidden;
+  min-height: 0;
+
+  h4 {
+    margin: 0;
+    padding: 12px 16px;
+    background: #fff;
+    border-bottom: 1px solid #ebeef5;
+    font-size: 14px;
+    color: #303133;
+    text-align: center;
+    flex-shrink: 0;
+  }
+}
+
+.fullscreen-overlay {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #fafbfc;
+  border-radius: 8px;
+  overflow: hidden;
+  min-height: 0;
+
+  h4 {
+    margin: 0;
+    padding: 12px 16px;
+    background: #fff;
+    border-bottom: 1px solid #ebeef5;
+    font-size: 14px;
+    color: #303133;
+    text-align: center;
+    flex-shrink: 0;
+  }
+
+  .overlay-legend {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 12px;
+    background: #fff;
+    border-top: 1px solid #ebeef5;
+    font-size: 13px;
+    color: #606266;
+    flex-shrink: 0;
+
+    .legend-label {
+      color: #606266;
+    }
+
+    .legend-gradient {
+      width: 200px;
+      height: 12px;
+      border-radius: 6px;
+      background: linear-gradient(
+        to right,
+        rgb(0, 0, 255),
+        rgb(0, 255, 255),
+        rgb(0, 255, 0),
+        rgb(255, 255, 0),
+        rgb(255, 0, 0)
+      );
+    }
+  }
 }
 </style>

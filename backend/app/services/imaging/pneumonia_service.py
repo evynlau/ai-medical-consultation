@@ -174,10 +174,20 @@ class PneumoniaService(BaseImagingService):
         result, heatmap = self.predict_with_gradcam(image)
         result["original_image_size"] = image.size
 
+        # 编码原始图像（供前端独立显示+叠加）
+        buffered_orig = io.BytesIO()
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+        image.save(buffered_orig, format="PNG")
+        orig_base64 = base64.b64encode(buffered_orig.getvalue()).decode("utf-8")
+        result["original_image"] = f"data:image/png;base64,{orig_base64}"
+
         if heatmap is not None:
-            # 将热力图转为 base64
-            from app.services.imaging.gradcam import heatmap_to_base64
+            # 返回热力图 (PNG 灰度, 0-255)
+            from app.services.imaging.gradcam import heatmap_to_base64, heatmap_to_base64_raw
             result["gradcam"] = heatmap_to_base64(heatmap, image.size)
+            # 同时保存原始热力图用于前端独立叠加
+            result["gradcam_raw"] = heatmap_to_base64_raw(heatmap)
 
         return result
 

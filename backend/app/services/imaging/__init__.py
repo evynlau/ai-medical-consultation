@@ -7,6 +7,7 @@ from app.services.imaging.gradcam import (
     generate_gradcam,
     heatmap_to_base64,
     heatmap_to_image,
+    heatmap_to_base64_raw,
 )
 
 __all__ = [
@@ -15,4 +16,5 @@ __all__ = [
     "generate_gradcam",
     "heatmap_to_base64",
     "heatmap_to_image",
+    "heatmap_to_base64_raw",
 ]
