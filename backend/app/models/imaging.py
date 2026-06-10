@@ -15,7 +15,7 @@ class ImagingAnalysis(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
 
     # 上传医生
-    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("user.id"), index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), index=True)
 
     # 关联 (可选)
     patient_id: Mapped[int | None] = mapped_column(Integer, default=None, index=True)
@@ -59,7 +59,7 @@ class DoctorAnnotation(Base):
     analysis_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("imaging_analysis.id"), index=True
     )
-    doctor_id: Mapped[int] = mapped_column(Integer, ForeignKey("user.id"), index=True)
+    doctor_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), index=True)
 
     # 标注内容
     annotation: Mapped[str] = mapped_column(Text)  # 标注说明
