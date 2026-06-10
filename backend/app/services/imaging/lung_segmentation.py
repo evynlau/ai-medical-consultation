@@ -1,83 +1,145 @@
-"""肺部分割 - 使用图像处理方法"""
+"""肺部分割 - lungmask 主导 + 形态学后处理"""
 import os
 from typing import Optional
 
 import numpy as np
 import cv2
 from PIL import Image
+import SimpleITK as sitk
+
+try:
+    from lungmask.mask import LMInferer
+    LUNGMASK_AVAILABLE = True
+except ImportError:
+    LUNGMASK_AVAILABLE = False
 
 
-def segment_lungs(image: Image.Image) -> np.ndarray:
-    """对胸片进行肺部分割（模块化函数）
+# 单例 - 避免每次重新加载模型
+_lung_mask_inferer: Optional[object] = None
+_lung_mask_device: str = "cpu"
+
+
+def _get_inferer(device: str = "cpu"):
+    """懒加载 lungmask inferer（单例）
 
     Args:
-        image: PIL Image (RGB 或 灰度)
+        device: 'cpu' 或 'cuda'
+    """
+    global _lung_mask_inferer, _lung_mask_device
+    if not LUNGMASK_AVAILABLE:
+        return None
+    if _lung_mask_inferer is None or _lung_mask_device != device:
+        force_cpu = (device == "cpu")
+        # R231CovidWeb 是为X光片训练的，禁用 volume_postprocessing
+        _lung_mask_inferer = LMInferer(
+            modelname="R231CovidWeb",
+            force_cpu=force_cpu,
+            volume_postprocessing=False,
+        )
+        _lung_mask_device = device
+    return _lung_mask_inferer
+
+
+def _xray_to_hu(img_gray: np.ndarray) -> np.ndarray:
+    """X光 (0-255) -> CT HU (-1024~600) 线性映射"""
+    return (img_gray.astype(np.float32) / 255.0) * 1624.0 - 1024.0
+
+
+def _lungmask_segment(image: Image.Image, device: str = "cpu") -> Optional[np.ndarray]:
+    """用 lungmask 分割肺部
+
+    lungmask 训练时用 CT HU 单位，X光片需要先做线性映射
+
+    Args:
+        image: PIL Image
+        device: 设备
 
     Returns:
-        二值 mask 数组 (H, W), 肺内=1, 肺外=0
+        二值 mask (H, W) 或 None（失败时）
     """
-    # 转 numpy 灰度图
-    img = np.array(image.convert('L'))
+    if not LUNGMASK_AVAILABLE:
+        return None
 
-    # Step 1: 反转图像 - 肺部（暗）变亮，便于二值化
-    inverted = cv2.bitwise_not(img)
+    img_gray = np.array(image.convert('L'))
+    hu = _xray_to_hu(img_gray)
+    sitk_image = sitk.GetImageFromArray(hu.reshape(1, *hu.shape).astype(np.float32))
 
-    # Step 2: Otsu 自动二值化
-    _, binary = cv2.threshold(inverted, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    try:
+        inferer = _get_inferer(device)
+        mask = inferer.apply(sitk_image)
 
-    # Step 3: 形态学开运算去小噪点，闭运算连通肺部
-    kernel_open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        # mask shape: (1, H, W) - 去掉第一维
+        mask_2d = mask[0] if mask.ndim == 3 else mask
+        # mask: 1=左肺, 2=右肺, 0=其他
+        binary_mask = (mask_2d > 0).astype(np.uint8)
+
+        # 确保输出尺寸与原图一致
+        if binary_mask.shape != img_gray.shape:
+            binary_mask = cv2.resize(
+                binary_mask,
+                (img_gray.shape[1], img_gray.shape[0]),
+                interpolation=cv2.INTER_NEAREST
+            )
+
+        return binary_mask
+    except Exception as e:
+        import logging
+        logging.warning(f"lungmask 分割失败: {e}")
+        return None
+
+
+def _post_process(mask: np.ndarray) -> np.ndarray:
+    """后处理：膨胀 + 连通域过滤 + 填充空洞
+
+    解决 lungmask 对肺炎浸润区识别不全的问题
+
+    Args:
+        mask: 初始二值 mask
+
+    Returns:
+        后处理后的二值 mask
+    """
+    if mask.sum() == 0:
+        return mask
+
+    # 1) 闭运算：连接小裂缝
     kernel_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+    closed = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_close)
 
-    # 先开后闭：去噪 + 连通
-    cleaned = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel_open)
-    cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_CLOSE, kernel_close)
+    # 2) 适度膨胀：弥补肺浸润区被lungmask误剔除
+    kernel_dilate = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+    dilated = cv2.dilate(closed, kernel_dilate, iterations=1)
 
-    # Step 4: 找到所有白色连通域（肺部 candidate）
+    # 3) 连通域分析：去掉孤立的噪点
     num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(
-        cleaned, connectivity=8
+        dilated, connectivity=8
     )
 
     if num_labels <= 1:
-        return np.zeros_like(img, dtype=np.uint8)
+        return mask
 
-    # 按面积排序（排除背景 0）
-    areas = stats[1:, cv2.CC_STAT_AREA]
-    sorted_indices = np.argsort(areas)[::-1]  # 降序
+    # 保留较大的连通域（>3% 图像面积）
+    img_size = dilated.size
+    min_area = img_size * 0.03
+    filtered = np.zeros_like(dilated)
 
-    # Step 5: 策略 - 累加连通域直到覆盖大约40-60%的图像
-    mask = np.zeros_like(img, dtype=np.uint8)
-    img_size = img.size
-    target_coverage_min = img_size * 0.38
-    target_coverage_max = img_size * 0.55
+    for i in range(1, num_labels):
+        area = stats[i, cv2.CC_STAT_AREA]
+        if area >= min_area:
+            filtered[labels == i] = 1
 
-    current_total = 0
-    for idx in sorted_indices:
-        area = areas[idx]
-        # 跳过太小的噪点（<1%）
-        if area < img_size * 0.01:
-            break
-        mask[labels == idx + 1] = 1
-        current_total += area
-        # 达到目标覆盖范围就停止
-        if current_total >= target_coverage_min:
-            break
+    # 4) 填充肺内部空洞（如肋骨投影）
+    filtered = _fill_holes(filtered)
 
-    # Step 6: 填充肺部内部空洞（如肋骨投影）
-    mask = _fill_lung_holes(mask)
-
-    return mask
+    return filtered
 
 
-def _fill_lung_holes(mask: np.ndarray) -> np.ndarray:
-    """填充肺部区域中的空洞
+def _fill_holes(mask: np.ndarray) -> np.ndarray:
+    """填充 mask 内部的孔洞"""
+    if mask.sum() == 0:
+        return mask
 
-    算法：使用连通域分析找出所有内部空洞并填充
-    """
-    # 转为二值（0和1）
-    binary_mask = (mask > 0).astype(np.uint8)
-
-    # 连通域分析（4连通以检测内部孔洞）
+    binary_mask = mask.astype(np.uint8)
     num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(
         binary_mask, connectivity=4
     )
@@ -88,54 +150,149 @@ def _fill_lung_holes(mask: np.ndarray) -> np.ndarray:
     h, w = mask.shape
     filled_mask = np.zeros_like(binary_mask)
 
-    # 找出背景（与边缘连通的区域）和肺部（内部区域）
     for i in range(1, num_labels):
         x = int(centroids[i][0])
         y = int(centroids[i][1])
-
-        # 如果连通域碰到图像边界，则是背景
+        # 检查是否碰到图像边缘（背景）
         is_edge = (
-            labels[y, 0] == i or       # 左边缘
-            labels[y, w-1] == i or     # 右边缘
-            labels[0, x] == i or   # 上边缘
-            labels[h-1, x] == i    # 下边缘
+            labels[y, 0] == i or
+            labels[y, w-1] == i or
+            labels[0, x] == i or
+            labels[h-1, x] == i
         )
-
         if not is_edge:
-            # 这是内部区域（空洞），填充它
             filled_mask[labels == i] = 1
 
-    # 原始肺部 + 填充的空洞
-    result = binary_mask | filled_mask
-    return result.astype(np.uint8)
+    return (binary_mask | filled_mask).astype(np.uint8)
 
 
-# 单例 - 默认使用 CPU (训练时推荐 CPU，推理时可改用 GPU)
-_segmentation_model: Optional[object] = None
+def _threshold_segment(image: Image.Image, lungmask_hint: Optional[np.ndarray] = None) -> np.ndarray:
+    """用阈值法补充 lungmask 的结果
+
+    如果提供了 lungmask_hint，则只在 hint 周围补充
+
+    Args:
+        image: PIL Image
+        lungmask_hint: 可选 lungmask 的结果，用于限制阈值法范围
+
+    Returns:
+        二值 mask
+    """
+    img = np.array(image.convert('L'))
+
+    # 反转：肺部（暗）变亮
+    inverted = cv2.bitwise_not(img)
+    _, binary = cv2.threshold(inverted, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    kernel_open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    kernel_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+    cleaned = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel_open)
+    cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_CLOSE, kernel_close)
+    cleaned = (cleaned > 0).astype(np.uint8)
+
+    # 如果有 lungmask hint，膨胀 hint 形成邻域 mask
+    # 阈值法结果只保留在邻域内的部分
+    if lungmask_hint is not None and lungmask_hint.sum() > 0:
+        # 膨胀 lungmask 创建一个"邻域窗口"（用于补充肺炎浸润区）
+        kernel_dilate = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (30, 30))
+        neighborhood = cv2.dilate(lungmask_hint, kernel_dilate, iterations=3)
+        cleaned = cleaned & neighborhood
+
+    # 移除与边缘连通的区域（背景）
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(cleaned, connectivity=4)
+    if num_labels <= 1:
+        return np.zeros_like(img, dtype=np.uint8)
+
+    h, w = img.shape
+    edge_labels = set()
+    # 检查四条边
+    edge_labels.update(np.unique(labels[0, :]))
+    edge_labels.update(np.unique(labels[h-1, :]))
+    edge_labels.update(np.unique(labels[:, 0]))
+    edge_labels.update(np.unique(labels[:, w-1]))
+
+    img_size = img.size
+    min_area = img_size * 0.03
+
+    mask = np.zeros_like(img, dtype=np.uint8)
+    for i in range(1, num_labels):
+        if i in edge_labels:
+            continue
+        if stats[i, cv2.CC_STAT_AREA] < min_area:
+            continue
+        mask[labels == i] = 1
+
+    return mask
 
 
-def get_lung_segmenter(device: str = "cpu", method: str = "simple") -> object:
-    """获取肺部分割器实例"""
-    global _segmentation_model
-    if _segmentation_model is None:
-        _segmentation_model = True  # 表示已初始化
-    return segment_lungs  # 返回函数
+def segment_lungs(image: Image.Image, device: str = "cpu") -> np.ndarray:
+    """对胸片进行肺部分割
+
+    策略：
+        1. 优先用 lungmask 识别左右肺
+        2. 在 lungmask 邻域内用阈值法补充被漏掉的肺炎浸润区
+        3. 后处理：填充、过滤、合并
+
+    Args:
+        image: PIL Image (RGB 或 灰度)
+        device: 'cpu' 或 'cuda'
+
+    Returns:
+        二值 mask 数组 (H, W), 肺内=1, 肺外=0
+    """
+    h, w = image.height, image.width
+
+    # 1) 尝试 lungmask
+    raw_mask = _lungmask_segment(image, device=device)
+
+    # 2) 在 lungmask 邻域内用阈值法补充
+    if raw_mask is not None and raw_mask.sum() > 0:
+        threshold_supplement = _threshold_segment(image, lungmask_hint=raw_mask)
+        # 合并：lungmask + 阈值法补充
+        if threshold_supplement.sum() > 0:
+            combined = ((raw_mask > 0) | (threshold_supplement > 0)).astype(np.uint8)
+        else:
+            combined = raw_mask
+
+        # 后处理
+        processed = _post_process(combined)
+        if processed.sum() > 0:
+            return processed
+
+    # 3) 回退到纯阈值法
+    threshold_mask = _threshold_segment(image)
+    if threshold_mask.sum() > 0:
+        return threshold_mask
+
+    # 4) 最后兜底
+    if raw_mask is not None:
+        return raw_mask
+    return np.zeros((h, w), dtype=np.uint8)
 
 
-def segment_lungs_with_cache(image: Image.Image, image_hash: Optional[str] = None) -> np.ndarray:
-    """带缓存的分割接口"""
+def get_lung_segmenter(device: str = "cpu"):
+    """获取肺部分割函数（接口兼容性）"""
+    return segment_lungs
+
+
+# 缓存
+_cache_dir: str = "data/processed_lungs"
+os.makedirs(_cache_dir, exist_ok=True)
+
+
+def segment_lungs_with_cache(image: Image.Image, image_hash: Optional[str] = None, device: str = "cpu") -> np.ndarray:
+    """带缓存的肺部分割"""
+    import hashlib
+
     if image_hash is None:
-        import hashlib
         img_bytes = image.tobytes()
         image_hash = hashlib.md5(img_bytes).hexdigest()
 
-    cache_dir = "data/processed_lungs"
-    os.makedirs(cache_dir, exist_ok=True)
-    cache_path = os.path.join(cache_dir, f"lungmask_{image_hash}.npy")
+    cache_path = os.path.join(_cache_dir, f"lungmask_{image_hash}.npy")
 
     if os.path.exists(cache_path):
         return np.load(cache_path)
 
-    mask = segment_lungs(image)
+    mask = segment_lungs(image, device=device)
     np.save(cache_path, mask)
     return mask
