@@ -126,14 +126,32 @@
                 />
               </el-col>
               <el-col :span="12">
-                <div class="image-label">{{ result.diagnosis }} 热力图</div>
+                <div class="image-label">
+                  {{ result.diagnosis }} 热力图
+                  <span class="image-label-hint">(叠加)</span>
+                </div>
                 <ImageViewer
-                  :src="mainGradcam?.overlay"
-                  alt="热力图"
+                  :src="originalImageUrl || result.original_image"
+                  :overlay-src="mainGradcam?.raw"
+                  :overlay-opacity="overlayOpacity / 100"
+                  :alt="`${result.diagnosis} 热力图`"
                   placeholder-text="暂无热力图"
                 />
               </el-col>
             </el-row>
+
+            <div class="opacity-bar" v-if="mainGradcam">
+              <el-icon><Sunny /></el-icon>
+              <span>热力图透明度</span>
+              <el-slider
+                v-model="overlayOpacity"
+                :min="10"
+                :max="100"
+                :step="5"
+                style="flex: 1; margin: 0 12px;"
+              />
+              <span class="opacity-value">{{ overlayOpacity }}%</span>
+            </div>
 
             <div class="image-meta">
               <el-tag size="small">文件名:{{ result.image_filename || 'N/A' }}</el-tag>
@@ -343,6 +361,7 @@ import { ElMessage } from 'element-plus'
 import {
   Picture, Clock, Upload, Aim, DataAnalysis, EditPen,
   CircleCheck, CircleClose, Warning, Check, Refresh,
+  Sunny,
 } from '@element-plus/icons-vue'
 import { analyzePneumonia, submitAnnotation as submitAnnotationApi } from '@/api/imaging'
 import ImageViewer from '@/components/ImageViewer.vue'
@@ -352,6 +371,8 @@ const originalImageUrl = ref('')
 const analyzing = ref(false)
 const submitting = ref(false)
 const result = ref(null)
+// 热力图叠加透明度
+const overlayOpacity = ref(50)
 
 const form = reactive({
   patient_id: null,
@@ -614,6 +635,32 @@ const resetAll = () => {
   color: #606266;
   margin-bottom: 4px;
   text-align: center;
+}
+
+.image-label-hint {
+  margin-left: 6px;
+  color: #67c23a;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.opacity-bar {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: #f5f7fa;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #606266;
+}
+
+.opacity-value {
+  font-weight: 600;
+  color: #409eff;
+  min-width: 40px;
+  text-align: right;
 }
 
 .image-meta {
