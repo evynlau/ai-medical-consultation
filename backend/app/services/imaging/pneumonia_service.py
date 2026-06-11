@@ -54,14 +54,16 @@ class PneumoniaService(BaseImagingService):
         self.config = {
             "image_size": 224,
             "classes": CLASS_NAMES,
-            "model_version": "densenet121-rsna+densenet121-all",
-            # 主分类模型: RSNA 预训练,在 chest_xray 上 78.68% Acc (二分类专用)
+            "model_version": "densenet121-rsna+densenet121-chex",
+            # 主分类模型: RSNA 预训练,在 chest_xray 上 79.88% Acc
             "xrv_weights": "densenet121-res224-rsna",
-            # 多标签热力图模型: 18 维全病理 (用于多类别 Grad-CAM 可视化)
-            "xrv_multi_weights": "densenet121-res224-all",
+            # 多标签热力图模型: CheXpert 预训练,11 维有效类别,82% Acc
+            # 比 all-model (62%) 区分度好很多
+            "xrv_multi_weights": "densenet121-res224-chex",
             "input_resolution": 224,
-            # chest_xray 上 Youden 校准的 Pneumonia 工作点 (RSNA 模型)
+            # chest_xray 上 Youden 校准: RSNA 用 0.620, CheX 用 0.590
             "pneumonia_threshold": 0.620,
+            "chex_pneumonia_threshold": 0.590,
         }
         self._xrv_model = None  # RSNA: 二分类主诊断
         self._xrv_multi = None  # all-model: 18 维多热力图
@@ -123,15 +125,14 @@ class PneumoniaService(BaseImagingService):
         return x.to(self.device)
 
     def predict(self, image: Image.Image) -> Dict[str, Any]:
-        """推理 - 18 维多标签"""
+        """推理 - 18 维多标签 (RSNA 模型只 Pneumonia+Lung Opacity 有效)"""
         start_time = time.time()
         x = self.preprocess(image)
         with torch.no_grad():
-            outputs = self._xrv_model(x)  # (1, 18) logits
+            outputs = self._xrv_model(x)
 
         inference_time_ms = int((time.time() - start_time) * 1000)
 
-        # 全部 sigmoid 概率
         all_probs = torch.sigmoid(outputs[0]).cpu().numpy()
         pathologies = self._xrv_model.pathologies
 
@@ -142,7 +143,7 @@ class PneumoniaService(BaseImagingService):
         predicted_class = "PNEUMONIA" if pneumonia_prob > pneumonia_thresh else "NORMAL"
         confidence = pneumonia_prob if predicted_class == "PNEUMONIA" else (1 - pneumonia_prob)
 
-        # 全 18 维报告
+        # RSNA 模型只 Pneumonia + Lung Opacity 2 类有效
         all_pathology_scores = {
             pathologies[i]: {
                 "probability": float(all_probs[i]),
@@ -153,13 +154,7 @@ class PneumoniaService(BaseImagingService):
             for i in range(len(pathologies)) if pathologies[i]
         }
 
-        # Top 5 异常 (按概率/阈值比排序,找最可疑)
-        suspicious = sorted(
-            [(k, v) for k, v in all_pathology_scores.items() if v["positive"]],
-            key=lambda x: x[1]["probability"] / (x[1]["threshold"] + 1e-8),
-            reverse=True,
-        )
-        top_findings = [k for k, _ in suspicious[:5]]
+        top_findings = [k for k, v in all_pathology_scores.items() if v["positive"]]
 
         return {
             "prediction": predicted_class,
@@ -273,18 +268,16 @@ class PneumoniaService(BaseImagingService):
         for idx, cam in cam_dict.items():
             cam_masked = cam * lung_mask if lung_mask is not None else cam
             pathology_name = path_names[idx]
-            # 从 RSNA 模型的 all_pathology_scores 拿概率(主诊断模型)
-            score_info = result["all_pathology_scores"].get(pathology_name)
+            # 每次都重新算 multi scores (避免缓存污染)
+            multi_scores = self._multi_pathology_scores(image)
+            score_info = multi_scores.get(pathology_name)
             if score_info is None:
-                # 多标签模型独立推理拿到全 18 维概率
-                if not hasattr(self, "_multi_scores_cache"):
-                    self._multi_scores_cache = self._multi_pathology_scores(image)
-                score_info = self._multi_scores_cache.get(pathology_name, {
+                score_info = {
                     "probability": 0.0,
                     "threshold": 0.5,
                     "positive": False,
                     "label_cn": PATHOLOGY_LABELS_CN.get(pathology_name, pathology_name),
-                })
+                }
             result["gradcams"].append({
                 "class_idx": int(idx),
                 "pathology": pathology_name,
@@ -305,16 +298,13 @@ class PneumoniaService(BaseImagingService):
             result["gradcam"] = None
             result["gradcam_raw"] = None
 
-        # 同时输出 all-model 的全 18 维概率
-        if not hasattr(self, "_multi_scores_cache") and cam_dict:
-            self._multi_scores_cache = self._multi_pathology_scores(image)
-        if hasattr(self, "_multi_scores_cache"):
-            result["multi_pathology_scores"] = self._multi_scores_cache
+        # 全 18 维多标签报告 (CheX 11 维)
+        result["multi_pathology_scores"] = multi_scores
 
         return result
 
     def _multi_pathology_scores(self, image: Image.Image) -> Dict[str, Dict[str, Any]]:
-        """用 all-model 推理,返回 18 维全病理报告"""
+        """用 CheXpert 模型推理,返回 11 维有效病理报告"""
         x = self._pil_to_xrv_tensor(image).to(self.device)
         with torch.no_grad():
             outputs = self._xrv_multi(x)
@@ -331,6 +321,11 @@ class PneumoniaService(BaseImagingService):
                 "positive": bool(probs[i] > op_threshs[i]),
                 "label_cn": PATHOLOGY_LABELS_CN.get(p, p),
             }
+        # 用 CheX 校准阈值重判 Pneumonia (用于报告一致性)
+        if "Pneumonia" in result:
+            chex_thresh = self.config.get("chex_pneumonia_threshold", 0.590)
+            result["Pneumonia"]["threshold"] = chex_thresh
+            result["Pneumonia"]["positive"] = bool(result["Pneumonia"]["probability"] > chex_thresh)
         return result
 
 

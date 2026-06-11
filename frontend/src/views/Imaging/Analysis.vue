@@ -233,10 +233,10 @@
               </div>
             </div>
 
-            <!-- 18 维全病理报告 (主模型 RSNA + 多标签 all-model) -->
+            <!-- 11 维多标签报告 (CheXpert 权重) -->
             <div v-if="result.multi_pathology_scores || result.all_pathology_scores" class="multi-report">
               <h5>
-                18 维多标签报告
+                多标签报告 (CheXpert 11 类)
                 <el-tag size="small" type="info" style="margin-left: 6px">torchxrayvision</el-tag>
               </h5>
               <div class="pathology-grid">
@@ -542,26 +542,22 @@ const form = reactive({
   consultation_id: null,
   include_gradcam: true,
   gradcam_method: 'hirescam',
-  // 多选病理热力图 (默认勾选肺炎/浸润/积液 - 胸片最常见 3 类)
-  target_classes: ['Pneumonia', 'Infiltration', 'Effusion'],
+  // 多选病理热力图 (默认勾选 3 个 CheX 模型区分度最好的)
+  // Pneumonia 走 RSNA 主诊断模型, 这里只用于生成热力图可视化
+  // Effusion / Cardiomegaly / Pneumothorax 是 CheX 上区分度最强的三类
+  target_classes: ['Pneumonia', 'Effusion', 'Cardiomegaly'],
 })
 
-// 18 类病理全列表 (torchxrayvision)
+// 11 类病理有效列表 (torchxrayvision CheXpert 权重, 其他权重 7 个类别是空)
+// 比 all-model 的 18 类区分度更好 (82% vs 62% on chest_xray)
 const PATHOLOGIES = [
   { en: 'Atelectasis', cn: '肺不张' },
   { en: 'Consolidation', cn: '实变' },
-  { en: 'Infiltration', cn: '浸润' },
   { en: 'Pneumothorax', cn: '气胸' },
   { en: 'Edema', cn: '肺水肿' },
-  { en: 'Emphysema', cn: '肺气肿' },
-  { en: 'Fibrosis', cn: '肺纤维化' },
   { en: 'Effusion', cn: '胸腔积液' },
   { en: 'Pneumonia', cn: '肺炎' },
-  { en: 'Pleural_Thickening', cn: '胸膜增厚' },
   { en: 'Cardiomegaly', cn: '心影增大' },
-  { en: 'Nodule', cn: '结节' },
-  { en: 'Mass', cn: '肿块' },
-  { en: 'Hernia', cn: '膈疝' },
   { en: 'Lung Lesion', cn: '肺内病变' },
   { en: 'Fracture', cn: '骨折' },
   { en: 'Lung Opacity', cn: '肺浑浊' },
@@ -1005,7 +1001,7 @@ const resetAll = () => {
   }
 }
 
-/* 18 维多标签报告 */
+/* 11 维多标签报告 (CheXpert) */
 .multi-report {
   margin-top: 16px;
   padding-top: 16px;
