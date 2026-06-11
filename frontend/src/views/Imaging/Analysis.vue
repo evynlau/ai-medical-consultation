@@ -203,8 +203,8 @@
               </div>
             </div>
 
-            <!-- 11 病理概率表 -->
-            <div class="pathology-list">
+            <!-- 11 病理概率表 (内部滚动) -->
+            <div class="pathology-list-scroller">
               <h5>11 维病理 (torchxrayvision CheXpert)</h5>
               <div
                 v-for="p in result.pathologies"
@@ -483,6 +483,28 @@ const resetAll = () => {
   padding: 20px;
 }
 
+.image-card,
+.result-card {
+  display: flex;
+  flex-direction: column;
+  max-height: 720px;
+  height: 720px;
+
+  :deep(.el-card__body) {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    padding: 16px;
+  }
+}
+
+.image-card :deep(.el-image) {
+  flex: 1;
+  min-height: 0;
+  cursor: zoom-in;
+}
+
 .card-header {
   display: flex;
   justify-content: space-between;
@@ -518,6 +540,7 @@ const resetAll = () => {
   background: linear-gradient(135deg, #f0f9ff, #e0f2fe);
   border-radius: 8px;
   margin-bottom: 16px;
+  flex-shrink: 0;
 }
 
 .diagnosis-icon {
@@ -551,6 +574,32 @@ const resetAll = () => {
     color: #303133;
     font-size: 14px;
   }
+}
+
+.pathology-list-scroller {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
+  margin-top: 8px;
+  /* 滚动条样式 */
+  scrollbar-width: thin;
+  scrollbar-color: #c0c4cc #f5f7fa;
+}
+
+.pathology-list-scroller::-webkit-scrollbar {
+  width: 6px;
+}
+.pathology-list-scroller::-webkit-scrollbar-track {
+  background: #f5f7fa;
+  border-radius: 3px;
+}
+.pathology-list-scroller::-webkit-scrollbar-thumb {
+  background: #c0c4cc;
+  border-radius: 3px;
+}
+.pathology-list-scroller::-webkit-scrollbar-thumb:hover {
+  background: #909399;
 }
 
 .pathology-item {
