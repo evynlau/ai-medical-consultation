@@ -114,18 +114,21 @@ class XRVAnalysisService(BaseImagingService):
     # =================== 图像预处理 (xrv 官方 transform) ===================
 
     def _preprocess(self, image: Image.Image) -> torch.Tensor:
-        """按 xrv 官方 transform: normalize + XRayCenterCrop + XRayResizer(224)"""
+        """按 xrv 官方 transform: normalize + XRayCenterCrop + XRayResizer(224)
+
+        输出 4D (1, 1, 224, 224) 适配 features()/classifier()
+        """
         import torchxrayvision as xrv
         import torchvision
         gray = image.convert("L") if image.mode != "L" else image
         arr = np.asarray(gray).astype(np.float32)
         arr = xrv.utils.normalize(arr, 255)  # 0-255 -> [-1024, 1024]
-        # 官方 transform (适用于 1 通道 X 光)
+        # 官方 transform: 输入 (1, H, W) -> 输出 (1, 224, 224) (保留 channel 维)
         trans = torchvision.transforms.Compose([
             xrv.datasets.XRayCenterCrop(),
             xrv.datasets.XRayResizer(224),
         ])
-        arr_t = trans(arr[None, :, :])[0]  # (1, H, W) -> trans -> (224, 224)
+        arr_t = trans(arr[None, :, :])  # (1, 224, 224) - 不要 [0] 拿掉 channel
         return torch.from_numpy(arr_t).unsqueeze(0)  # (1, 1, 224, 224)
 
     def preprocess(self, image: Image.Image) -> torch.Tensor:
@@ -267,19 +270,29 @@ class XRVAnalysisService(BaseImagingService):
         image: Image.Image,
         class_idx: int,
     ) -> Optional[np.ndarray]:
-        """对单个 pathology 生成 Grad-CAM (HiResCAM 实现)
+        """对单个 pathology 生成 Grad-CAM (HiResCAM)
 
-        xrv DenseNet.features() 拿特征, classifier() 算 logits
+        xrv DenseNet 内部结构 (apply_sigmoid=True):
+          - features(x): (1, 1024, 7, 7)  -- 4D
+          - classifier: nn.Linear(1024, 18)  -- 期望 2D 输入
+
+        因此:
+          1. features() 拿 4D 特征, retain_grad
+          2. AdaptiveAvgPool2d + flatten -> 2D (1, 1024)
+          3. classifier(2D) -> logits (1, 18)
+          4. backward, 用 features * features.grad 算 CAM
         """
         try:
-            x = self.preprocess(image)
-            # xrv 模型有 features() 和 classifier() 接口
-            features = self._xrv_model.features(x)  # (1, C, H, W)
+            x = self.preprocess(image)  # (1, 1, 224, 224)
+            # 1. 拿 4D 特征
+            features = self._xrv_model.features(x)  # (1, 1024, 7, 7)
             features.retain_grad()
-            # forward classifier: AdaptiveAvgPool2d + flatten + Linear
-            pooled = F.adaptive_avg_pool2d(features, 1).flatten(1)
-            logits = self._xrv_model.classifier(pooled)
+            # 2. 4D -> 2D 池化展平
+            pooled = F.adaptive_avg_pool2d(features, 1).flatten(1)  # (1, 1024)
+            # 3. 走 classifier
+            logits = self._xrv_model.classifier(pooled)  # (1, 18)
 
+            # 4. 反向传播
             self._xrv_model.zero_grad()
             one_hot = torch.zeros_like(logits)
             one_hot[0][class_idx] = 1
@@ -288,10 +301,11 @@ class XRVAnalysisService(BaseImagingService):
             if features.grad is None:
                 return None
 
-            # HiResCAM: 激活 × 梯度 逐元素
+            # 5. HiResCAM: 激活 × 梯度 逐元素
             cam = (features * features.grad).detach()
-            cam = cam.sum(dim=1, keepdim=True)
+            cam = cam.sum(dim=1, keepdim=True)  # (1, 1, 7, 7)
             cam = F.relu(cam)
+            # 6. 上采样到原图大小
             cam = F.interpolate(cam, size=image.size[::-1], mode="bilinear", align_corners=False)
             cam = cam.squeeze().cpu().numpy()
             cam = (cam - cam.min()) / (cam.max() - cam.min() + 1e-8) * 255
@@ -374,10 +388,15 @@ class XRVAnalysisService(BaseImagingService):
         return result
 
     def predict_from_bytes_with_gradcam(
-        self, image_bytes: bytes, target_classes: Optional[List[str]] = None,
+        self,
+        image_bytes: bytes,
+        target_classes: Optional[List[str]] = None,
+        apply_lung_mask: bool = True,
     ) -> Dict[str, Any]:
         image = Image.open(io.BytesIO(image_bytes))
-        return self.predict_with_gradcam(image, target_classes=target_classes)
+        return self.predict_with_gradcam(
+            image, target_classes=target_classes, apply_lung_mask=apply_lung_mask
+        )
 
     def predict_from_bytes(self, image_bytes: bytes) -> Dict[str, Any]:
         image = Image.open(io.BytesIO(image_bytes))
