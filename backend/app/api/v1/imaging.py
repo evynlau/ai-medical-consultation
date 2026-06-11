@@ -1,10 +1,11 @@
-"""/api/v1/imaging - 影像分析接口
-医生辅助诊断模块
+"""/api/v1/imaging - torchxrayvision 多分类胸片分析接口
+
+按 xrv 官方范式:
+  POST /pneumonia/analyze  - 上传胸片,返回 11 维多分类结果 + Grad-CAM
 """
 from datetime import datetime
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
@@ -13,7 +14,7 @@ from app.core.database import get_db
 from app.models.user import User
 from app.models.imaging import ImagingAnalysis, DoctorAnnotation
 from app.api.deps import get_doctor_user, get_admin_user, get_current_user
-from app.services.imaging import get_pneumonia_service
+from app.services.imaging import get_xrv_service
 from app.utils.logger import logger
 
 router = APIRouter()
@@ -25,20 +26,21 @@ class AnnotationRequest(BaseModel):
     """医生标注请求"""
     annotation: str = Field(..., min_length=1, max_length=2000, description="标注说明")
     agreement: bool = Field(..., description="是否同意 AI 判断")
-    correct_label: Optional[str] = Field(None, description="修正后的标签 (PNEUMONIA/NORMAL)")
+    correct_label: Optional[str] = Field(None, description="修正后的标签 (任意 pathology 英文名)")
 
 
 class ImagingAnalysisOut(BaseModel):
     """影像分析响应"""
     id: int
     image_filename: Optional[str]
-    prediction: str
-    prediction_label: str
-    probabilities: dict
+    diagnosis: str
+    diagnosis_cn: str
     confidence: float
-    model_version: str
+    positive_count: int
+    pathologies: list
+    model_name: str
     inference_time_ms: Optional[int]
-    gradcam: Optional[str]
+    gradcams: Optional[list] = None
     patient_id: Optional[int]
     consultation_id: Optional[int]
     doctor_id: Optional[int]
@@ -59,60 +61,33 @@ async def analyze_pneumonia(
     patient_id: Optional[int] = Form(None),
     consultation_id: Optional[int] = Form(None),
     include_gradcam: bool = Form(True),
-    gradcam_method: str = Form("hirescam", description="热力图算法: hirescam 或 gradcam"),
-    target_classes: str = Form("Pneumonia", description="要高亮的病理列表,逗号分隔,默认 Pneumonia"),
+    target_classes: str = Form("", description="要生成热力图的病理,逗号分隔,留空=所有阳性+肺炎"),
+    apply_lung_mask: bool = Form(True, description="是否用 PSPNet 限制热力图到双肺内"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_doctor_user),
 ):
-    """上传胸片,AI 多标签辅助分析
+    """torchxrayvision 多分类胸片分析
 
-    支持的影像类型: JPEG, PNG
-    限制: 10MB
-
-    gradcam_method:
-        - hirescam: 空间分辨率更高,边界更清晰(推荐)
-        - gradcam: 经典算法,兼容性好
-
-    target_classes:
-        - 逗号分隔的病理名,默认 "Pneumonia"
-        - 可选 18 类: Atelectasis, Consolidation, Infiltration, Pneumothorax, Edema,
-          Emphysema, Fibrosis, Effusion, Pneumonia, Pleural_Thickening, Cardiomegaly,
-          Nodule, Mass, Hernia, Lung Lesion, Fracture, Lung Opacity, Enlarged Cardiomediastinum
-        - 例: "Pneumonia,Infiltration,Effusion" 同时生成 3 张热力图
+    返回:
+      - diagnosis: 主诊断 (阳性概率/阈值比最高的病理, 或 "NORMAL")
+      - pathologies: 11 维多分类结果 (每个含 prob/threshold/positive)
+      - gradcams: 每个 target_class 一张 Grad-CAM (HiResCAM, 经 PSPNet 限制)
     """
-    # 验证文件类型
     if file.content_type not in ["image/jpeg", "image/jpg", "image/png"]:
         raise HTTPException(400, "仅支持 JPEG/PNG 格式")
 
-    # 读取文件
     contents = await file.read()
     if len(contents) > 10 * 1024 * 1024:
         raise HTTPException(400, "文件过大,最大支持 10MB")
 
-    # 验证 gradcam_method
-    if gradcam_method not in ("hirescam", "gradcam"):
-        gradcam_method = "hirescam"
+    # 解析 target_classes
+    requested = [c.strip() for c in target_classes.split(",") if c.strip()] or None
 
-    # 解析 target_classes -> 索引列表
-    # 热力图默认走 all-model (18 维多标签)
-    service = get_pneumonia_service()
-    multi_pathologies = service._xrv_multi.pathologies
-    pathology_to_idx = {p: i for i, p in enumerate(multi_pathologies) if p}
-
-    requested = [c.strip() for c in target_classes.split(",") if c.strip()]
-    target_idxs = []
-    for name in requested:
-        if name in pathology_to_idx:
-            target_idxs.append(pathology_to_idx[name])
-    if not target_idxs:
-        target_idxs = [pathology_to_idx["Pneumonia"]]  # 兜底
-
-    # AI 推理
     try:
+        service = get_xrv_service()
         if include_gradcam:
             result = service.predict_from_bytes_with_gradcam(
-                contents, method=gradcam_method,
-                target_class_idxs=target_idxs, cam_source="multi",
+                contents, target_classes=requested, apply_lung_mask=apply_lung_mask
             )
         else:
             result = service.predict_from_bytes(contents)
@@ -125,13 +100,13 @@ async def analyze_pneumonia(
         user_id=user.id,
         image_filename=file.filename,
         image_size=str(result.get("original_image_size", "")),
-        prediction=result["prediction"],
-        prediction_label=result["prediction_label"],
-        probabilities=result["probabilities_dict"],
+        prediction=result["diagnosis"],
+        prediction_label=result["diagnosis_cn"],
+        probabilities={"confidence": result["confidence"], "positive_count": result["positive_count"]},
         confidence=result["confidence"],
-        model_version=result["model_version"],
-        inference_time_ms=result.get("inference_time_ms"),
-        gradcam=result.get("gradcam"),
+        model_version=result["model_weights"],
+        inference_time_ms=result["inference_time_ms"],
+        gradcam=result["gradcams"][0]["overlay"] if result.get("gradcams") else None,
         patient_id=patient_id,
         consultation_id=consultation_id,
     )
@@ -141,31 +116,26 @@ async def analyze_pneumonia(
 
     return {
         "id": analysis.id,
-        "prediction": result["prediction"],
-        "prediction_label": result["prediction_label"],
-        "probabilities": result["probabilities_dict"],
+        "image_filename": file.filename,
+        "diagnosis": result["diagnosis"],
+        "diagnosis_cn": result["diagnosis_cn"],
         "confidence": result["confidence"],
-        "model_version": result["model_version"],
-        "inference_time_ms": result.get("inference_time_ms"),
-        "gradcam_method": gradcam_method if include_gradcam else None,
-        # 多热力图列表(每个病理一张)
+        "positive_count": result["positive_count"],
+        "pathologies": result["pathologies"],
+        "model_name": result["model_name"],
+        "model_weights": result["model_weights"],
+        "inference_time_ms": result["inference_time_ms"],
         "gradcams": result.get("gradcams", []),
-        "gradcam_target_classes": requested,
-        # 兼容旧字段
-        "gradcam": result.get("gradcam"),
-        "gradcam_raw": result.get("gradcam_raw"),
-        # 18 维全报告 (主模型 RSNA)
-        "all_pathology_scores": result.get("all_pathology_scores", {}),
-        # 18 维全报告 (多标签 all-model)
-        "multi_pathology_scores": result.get("multi_pathology_scores", {}),
-        "top_findings": result.get("top_findings", []),
         "original_image": result.get("original_image"),
         "original_image_size": result.get("original_image_size"),
+        "lung_mask_applied": result.get("lung_mask_applied", False),
+        "calibrated": result.get("calibrated", False),
+        "target_classes": requested or [],
         "warnings": [
             "本结果仅供医生参考,不作为最终诊断依据",
             "请结合临床症状和其他检查综合判断",
         ],
-        "disclaimer": "AI辅助诊断工具,最终诊断需由专业医生确认",
+        "disclaimer": "AI 辅助诊断工具,最终诊断需由专业医生确认",
     }
 
 
@@ -181,12 +151,9 @@ async def get_analysis_history(
     """获取分析历史记录"""
     stmt = select(ImagingAnalysis)
 
-    # 权限控制
     if user.is_doctor:
-        # 医生只看自己的
         stmt = stmt.where(ImagingAnalysis.user_id == user.id)
     elif not user.is_admin:
-        # 其他用户只能看自己的
         stmt = stmt.where(ImagingAnalysis.user_id == user.id)
 
     if patient_id:
@@ -205,15 +172,11 @@ async def get_analysis_detail(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """获取单个分析详情"""
     analysis = await db.get(ImagingAnalysis, analysis_id)
     if not analysis:
         raise HTTPException(404, "分析记录不存在")
-
-    # 权限检查
     if not user.is_admin and analysis.user_id != user.id:
         raise HTTPException(403, "无权查看")
-
     return analysis
 
 
@@ -224,12 +187,10 @@ async def submit_annotation(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_doctor_user),
 ):
-    """医生提交标注"""
     analysis = await db.get(ImagingAnalysis, analysis_id)
     if not analysis:
         raise HTTPException(404, "分析记录不存在")
 
-    # 创建标注记录
     annotation = DoctorAnnotation(
         analysis_id=analysis_id,
         doctor_id=user.id,
@@ -238,12 +199,9 @@ async def submit_annotation(
         correct_label=payload.correct_label,
     )
     db.add(annotation)
-
-    # 同时更新分析记录的标注字段
     analysis.annotation = payload.annotation
     analysis.doctor_agreement = payload.agreement
     analysis.correct_label = payload.correct_label
-
     await db.commit()
     await db.refresh(annotation)
 
@@ -260,7 +218,6 @@ async def list_annotations(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """获取标注列表"""
     stmt = (
         select(DoctorAnnotation)
         .where(DoctorAnnotation.analysis_id == analysis_id)
@@ -281,19 +238,17 @@ async def list_annotations(
 
 
 @router.get("/models/list")
-async def list_available_models(
-    user: User = Depends(get_admin_user),
-):
+async def list_available_models(user: User = Depends(get_admin_user)):
     """列出可用模型 (管理员)"""
-    service = get_pneumonia_service()
+    service = get_xrv_service()
     return {
         "models": [
             {
-                "name": "pneumonia_resnet50",
-                "version": service.config.get("model_version", "unknown"),
-                "classes": service.config.get("classes", []),
-                "image_size": service.config.get("image_size", 224),
-                "is_loaded": service.model is not None,
+                "name": str(service._xrv_model),
+                "weights": "densenet121-res224-chex",
+                "pathologies": [p for p in service._xrv_model.pathologies if p],
+                "calibrated": bool(service._calibration),
+                "is_loaded": service._xrv_model is not None,
             }
         ]
     }
