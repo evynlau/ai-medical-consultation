@@ -91,19 +91,18 @@ class XRVAnalysisService(BaseImagingService):
             logger.warning(f"PSPNet 加载失败: {e}")
 
     def load_model(self):
-        """按 xrv 官方方式加载模型"""
+        """按 xrv 官方方式加载模型
+
+        注意: xrv DenseNet.forward() 内部已经自动 sigmoid + op_norm,
+        当 model.op_threshs 不为 None 时 (官方权重都设了), 不需要再 apply_sigmoid
+        """
         import torchxrayvision as xrv
-        logger.info("按 xrv 官方范式加载: densenet121-res224-chex, apply_sigmoid=True")
-        # 关键: apply_sigmoid=True 让模型直接输出 [0,1] 校准概率
-        self._xrv_model = xrv.models.get_model(
-            "densenet121-res224-chex",
-            apply_sigmoid=True,
-        )
+        logger.info("按 xrv 官方范式加载: densenet121-res224-chex")
+        # 默认 apply_sigmoid=False, forward 内部已处理
+        self._xrv_model = xrv.models.get_model("densenet121-res224-chex")
         self._xrv_model.to(self._device)
         self._xrv_model.eval()
-        # 关闭预训练 op_threshs (让我们自己校准)
-        if hasattr(self._xrv_model, 'op_threshs'):
-            self._xrv_model.op_threshs = None
+        # 官方 op_threshs (PPV=80% 工作点) 保留
         logger.info(
             f"✅ 加载完成. {len([p for p in self._xrv_model.pathologies if p])} 病理: "
             f"{[p for p in self._xrv_model.pathologies if p]}"
@@ -141,14 +140,18 @@ class XRVAnalysisService(BaseImagingService):
         start = time.time()
         x = self.preprocess(image)
         with torch.no_grad():
-            # apply_sigmoid=True, 输出 (1, 18) 概率
-            probs = self._xrv_model(x).cpu().numpy()[0]
+            # 1. 拿原始 logits (从 features + classifier 算)
+            features = self._xrv_model.features(x)
+            pooled = F.adaptive_avg_pool2d(features, 1).flatten(1)
+            logits = self._xrv_model.classifier(pooled)
+            # 2. sigmoid -> [0,1] 概率
+            probs = torch.sigmoid(logits[0]).cpu().numpy()
         inference_ms = int((time.time() - start) * 1000)
 
-        # 校准阈值
+        # 阈值 (xrv 官方 op_threshs, NaN -> 0.5 兜底)
         thresholds = self._get_thresholds()
 
-        # 构造 18 维结果 (空病理填 None)
+        # 构造结果
         results = []
         positive_count = 0
         for idx, pathology in enumerate(self._xrv_model.pathologies):
@@ -168,7 +171,7 @@ class XRVAnalysisService(BaseImagingService):
                 "positive": is_positive,
             })
 
-        # 主诊断: 找阳性概率最高的
+        # 主诊断: 找阳性概率/阈值比最高的
         positive_results = [r for r in results if r["positive"]]
         if positive_results:
             main = max(positive_results, key=lambda r: r["probability"] / (r["threshold"] + 1e-8))
@@ -176,7 +179,6 @@ class XRVAnalysisService(BaseImagingService):
             main_label_cn = main["label_cn"]
             confidence = main["probability"]
         else:
-            # 没有阳性, 主诊断 = 概率最低的 (最正常)
             main = min(results, key=lambda r: r["probability"])
             main_diagnosis = "NORMAL"
             main_label_cn = "未见明显异常"
@@ -191,44 +193,26 @@ class XRVAnalysisService(BaseImagingService):
             "inference_time_ms": inference_ms,
             "model_name": str(self._xrv_model),
             "model_weights": "densenet121-res224-chex",
-            "calibrated": bool(self._calibration),
+            "threshold_source": "xrv 官方 op_threshs (PPV=80%)",
         }
 
     def _get_thresholds(self) -> Dict[str, float]:
-        """获取每个 pathology 的校准阈值
+        """获取每个 pathology 的判定阈值 (完全按 torchxrayvision 官方方案)
 
-        优先级:
-          1. 自己校准的 (chest_xray 上 ROC Youden for Pneumonia + xrv 自带 op_threshs for 其他)
-          2. xrv 自带 op_threshs (PPV=80% 工作点)
-          3. 兜底 0.5
+        唯一来源: model.op_threshs (PPV=80% 工作点, xrv 官方在 224k+ 张胸片上训练后给出)
+        - NaN 位置 (该模型未训练该病理) -> 兜底 0.5
         """
-        # 1. 自己校准 (xrv_calibration.json)
-        if self._calibration and self._calibration.get("op_threshs"):
-            pathologies = self._xrv_model.pathologies
-            threshs = self._calibration["op_threshs"]
-            result = {}
-            for i, p in enumerate(pathologies):
-                if not p:
-                    continue
-                if i < len(threshs) and threshs[i] is not None:
-                    result[p] = float(threshs[i])
-                else:
-                    result[p] = 0.5
-            # Pneumonia 优先用我们在 chest_xray 上自校准的 Youden
-            pneu_cal = self._calibration.get("Pneumonia", {})
-            if "youden_threshold" in pneu_cal:
-                result["Pneumonia"] = float(pneu_cal["youden_threshold"])
-            return result
-        # 2. xrv 自带
-        if hasattr(self._xrv_model, 'op_threshs') and self._xrv_model.op_threshs is not None:
-            threshs = self._xrv_model.op_threshs.cpu().numpy()
-            return {
-                p: float(threshs[i])
-                for i, p in enumerate(self._xrv_model.pathologies)
-                if p
-            }
-        # 3. 兜底
-        return {p: 0.5 for p in self._xrv_model.pathologies if p}
+        threshs = self._xrv_model.op_threshs.cpu().numpy()
+        result = {}
+        for i, p in enumerate(self._xrv_model.pathologies):
+            if not p:
+                continue
+            if i < len(threshs) and not np.isnan(threshs[i]):
+                result[p] = float(threshs[i])
+            else:
+                # 该模型未训练该病理, 用兜底
+                result[p] = 0.5
+        return result
 
     # =================== 肺部分割 (PSPNet, xrv 官方 baseline) ===================
 

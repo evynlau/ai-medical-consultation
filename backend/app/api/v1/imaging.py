@@ -137,7 +137,7 @@ async def analyze_pneumonia(
         "original_image": result.get("original_image"),
         "original_image_size": result.get("original_image_size"),
         "lung_mask_applied": result.get("lung_mask_applied", False),
-        "calibrated": result.get("calibrated", False),
+        "threshold_source": result.get("threshold_source", "xrv 官方"),
         "target_classes": requested or [],
         "warnings": [
             "本结果仅供医生参考,不作为最终诊断依据",
@@ -294,7 +294,7 @@ async def list_available_models(user: User = Depends(get_admin_user)):
                 "name": str(service._xrv_model),
                 "weights": "densenet121-res224-chex",
                 "pathologies": [p for p in service._xrv_model.pathologies if p],
-                "calibrated": bool(service._calibration),
+                "calibrated": False,  # 完全用 xrv 官方 op_threshs, 不做自校准
                 "is_loaded": service._xrv_model is not None,
             }
         ]

@@ -166,8 +166,8 @@
               >
                 PSPNet 肺部分割
               </el-tag>
-              <el-tag v-if="result.calibrated" size="small" type="success">
-                已校准
+              <el-tag size="small" type="info">
+                xrv 官方 op_threshs
               </el-tag>
             </div>
           </el-card>
