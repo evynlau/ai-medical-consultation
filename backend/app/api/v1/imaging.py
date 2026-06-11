@@ -30,27 +30,35 @@ class AnnotationRequest(BaseModel):
 
 
 class ImagingAnalysisOut(BaseModel):
-    """影像分析响应"""
+    """影像分析响应 (兼容新旧字段)"""
     id: int
     image_filename: Optional[str]
-    diagnosis: str
-    diagnosis_cn: str
-    confidence: float
-    positive_count: int
-    pathologies: list
-    model_name: str
-    inference_time_ms: Optional[int]
-    gradcams: Optional[list] = None
-    patient_id: Optional[int]
-    consultation_id: Optional[int]
-    doctor_id: Optional[int]
-    annotation: Optional[str]
-    doctor_agreement: Optional[bool]
-    correct_label: Optional[str]
-    created_at: datetime
+    # 兼容旧字段 (数据库 ORM)
+    prediction: Optional[str] = None
+    prediction_label: Optional[str] = None
+    probabilities: Optional[dict] = None
+    confidence: Optional[float] = None
+    model_version: Optional[str] = None
+    inference_time_ms: Optional[int] = None
+    gradcam: Optional[str] = None
+    patient_id: Optional[int] = None
+    consultation_id: Optional[int] = None
+    doctor_id: Optional[int] = None
+    annotation: Optional[str] = None
+    doctor_agreement: Optional[bool] = None
+    correct_label: Optional[str] = None
+    created_at: Optional[datetime] = None
+    # 新增字段 (xrv 官方范式)
+    diagnosis: Optional[str] = None
+    diagnosis_cn: Optional[str] = None
+    positive_count: Optional[int] = None
+    pathologies: Optional[list] = None
+    model_name: Optional[str] = None
 
     class Config:
         from_attributes = True
+        # 允许 ORM 字段名(下划线) 映射到 Pydantic 字段
+        populate_by_name = True
 
 
 # ====================== 接口 ======================
@@ -163,7 +171,8 @@ async def get_analysis_history(
 
     stmt = stmt.order_by(desc(ImagingAnalysis.created_at)).limit(limit).offset(offset)
     rows = (await db.execute(stmt)).scalars().all()
-    return rows
+    # 字段映射: ORM -> API (兼容旧 prediction / 新 diagnosis)
+    return [_to_api_dict(r) for r in rows]
 
 
 @router.get("/{analysis_id}", response_model=ImagingAnalysisOut)
@@ -177,7 +186,45 @@ async def get_analysis_detail(
         raise HTTPException(404, "分析记录不存在")
     if not user.is_admin and analysis.user_id != user.id:
         raise HTTPException(403, "无权查看")
-    return analysis
+    return _to_api_dict(analysis)
+
+
+def _to_api_dict(row) -> dict:
+    """ORM ImagingAnalysis -> API 响应 dict (兼容新旧字段)"""
+    import json
+    probs_dict = row.probabilities or {}
+    # probabilities 字段在 analyze 时存的是 {"NORMAL": ..., "PNEUMONIA": ...} 或 {"confidence": ..., "positive_count": ...}
+    if "NORMAL" in probs_dict:
+        # 旧格式
+        api_probs = probs_dict
+    else:
+        # 新格式
+        api_probs = probs_dict
+    return {
+        "id": row.id,
+        "image_filename": row.image_filename,
+        # 旧字段 (兼容)
+        "prediction": row.prediction,
+        "prediction_label": row.prediction_label,
+        "probabilities": api_probs,
+        "confidence": row.confidence,
+        "model_version": row.model_version,
+        "inference_time_ms": row.inference_time_ms,
+        "gradcam": row.gradcam,
+        "patient_id": row.patient_id,
+        "consultation_id": row.consultation_id,
+        "doctor_id": row.user_id,
+        "annotation": row.annotation,
+        "doctor_agreement": row.doctor_agreement,
+        "correct_label": row.correct_label,
+        "created_at": row.created_at,
+        # 新字段 (xrv 官方范式, 从 ORM 推导)
+        "diagnosis": row.prediction,
+        "diagnosis_cn": row.prediction_label,
+        "positive_count": probs_dict.get("positive_count"),
+        "pathologies": None,  # 历史记录不存 18 维, 只存主诊断
+        "model_name": row.model_version,
+    }
 
 
 @router.post("/{analysis_id}/annotate")
