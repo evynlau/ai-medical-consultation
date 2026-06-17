@@ -687,6 +687,9 @@ curl -X POST http://localhost:8000/api/v1/user/register \
 问诊分析页面
 ![](image/README_20260602182934690.png)
 
+名医录
+![](image/README_20260617150900121.png)
+
 可后台丰富的医学知识库
 ![](image/README_20260602183028691.png)
 
