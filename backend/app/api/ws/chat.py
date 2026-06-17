@@ -96,7 +96,12 @@ async def handle_chat(client_id: str, data: dict):
 
         # 流式:为简化,先一次性推完(mvp)
         agent = get_medical_agent()
-        result = await agent.chat(content, conversation_history=history)
+        image_path = (data.get("image_path") or data.get("image_url") or "").strip() or None
+        result = await agent.chat(
+            content,
+            conversation_history=history,
+            image_path=image_path,
+        )
         reply = result["reply"]
 
         # 分片发送(模拟流式)

@@ -86,21 +86,45 @@ class EmbeddingService:
 
     async def _embed_openai(self, texts: List[str]) -> np.ndarray:
         from openai import AsyncOpenAI
-        client = AsyncOpenAI(
-            api_key=settings.OPENAI_API_KEY,
-            base_url=settings.OPENAI_BASE_URL,
-        )
-        # 批量调用
-        all_vecs = []
-        batch_size = 100
-        for i in range(0, len(texts), batch_size):
-            batch = texts[i:i + batch_size]
-            resp = await client.embeddings.create(
-                model="text-embedding-3-small",
-                input=batch,
-            )
-            all_vecs.extend([d.embedding for d in resp.data])
-        return np.array(all_vecs, dtype="float32")
+        # 优先用 embedding 专用配置;留空时回退到 LLM 的 OPENAI_BASE_URL
+        base_url = (settings.EMBEDDING_BASE_URL or "").strip() or settings.OPENAI_BASE_URL
+        api_key = (settings.EMBEDDING_API_KEY or "").strip() or settings.OPENAI_API_KEY or "ollama"
+
+        # 模型名走 settings.EMBEDDING_MODEL
+        model_name = settings.EMBEDDING_MODEL
+        if not model_name or model_name == "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2":
+            # 默认配置(本地 sentence-transformers)对 OpenAI provider 无效,显式兜底
+            is_local = "11434" in base_url
+            model_name = "nomic-embed-text" if is_local else "text-embedding-3-small"
+
+        # 关键:client 在本函数内创建,跑完用 try/finally 主动 close
+        # 否则子线程 loop 关闭时,httpx async generator 会报 "Event loop is closed"
+        client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        try:
+            # 批量调用
+            all_vecs = []
+            batch_size = 100
+            n_batches = (len(texts) + batch_size - 1) // batch_size
+            for i in range(0, len(texts), batch_size):
+                batch = texts[i:i + batch_size]
+                batch_no = i // batch_size + 1
+                logger.info(
+                    f"[Embedding] 批次 {batch_no}/{n_batches} "
+                    f"({len(batch)} 条,累计 {i + len(batch)}/{len(texts)})"
+                )
+                resp = await client.embeddings.create(
+                    model=model_name,
+                    input=batch,
+                )
+                all_vecs.extend([d.embedding for d in resp.data])
+            return np.array(all_vecs, dtype="float32")
+        finally:
+            # 在当前 loop 关闭之前显式 aclose client
+            # 避免 "Event loop is closed" 错误(子线程 asyncio.run 场景)
+            try:
+                await client.close()
+            except Exception:
+                pass
 
 
 # 全局单例

@@ -20,5 +20,15 @@ export const adminApi = {
   createKnowledge: (data) => http.post('/admin/knowledge', data),
   updateKnowledge: (id, data) => http.put(`/admin/knowledge/${id}`, data),
   deleteKnowledge: (id) => http.delete(`/admin/knowledge/${id}`),
-  reindex: () => http.post('/admin/knowledge/reindex')
+  reindex: () => http.post('/admin/knowledge/reindex'),
+
+  // 异步重建索引(通用,知识库+名医录共用)
+  reindexAsync: () => http.post('/admin/reindex'),
+  reindexStatus: () => http.get('/admin/reindex/status'),
+  reindexInfo: () => http.get('/admin/reindex/info'),
+
+  // 名医录管理
+  createDoctor: (data) => http.post('/admin/doctors', data),
+  updateDoctor: (id, data) => http.put(`/admin/doctors/${id}`, data),
+  deleteDoctor: (id) => http.delete(`/admin/doctors/${id}`)
 }

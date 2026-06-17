@@ -6,8 +6,8 @@ html, body, #app {
   padding: 0;
   height: 100%;
   font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  background: #f5f7fa;
-  color: #303133;
+  background: var(--c-bg-soft, #FAF7F2);  /* 暖白纸张底(默认 fallback 给非主题环境) */
+  color: var(--c-text-1, #2A2926);
 }
 
 a { text-decoration: none; color: inherit; }
@@ -41,6 +41,7 @@ a { text-decoration: none; color: inherit; }
   flex-shrink: 0;
   &.ai { background: #409EFF; color: #fff; }
   &.user { background: #67C23A; color: #fff; }
+  &.doctor { background: #E6A23C; color: #fff; }   /* 医生:暖橙(与 Consultations 标签色一致) */
 }
 
 .chat-bubble {
@@ -51,6 +52,24 @@ a { text-decoration: none; color: inherit; }
   word-break: break-word;
   &.ai { background: #fff; border: 1px solid #ebeef5; }
   &.user { background: #409EFF; color: #fff; }
+  &.doctor {
+    background: #FDF6EC;                           /* 医生:淡橙底 + 橙色左边框,权威感 */
+    border: 1px solid #E6A23C;
+    border-left: 3px solid #E6A23C;
+  }
+}
+
+/* 医生身份标识(气泡上方) */
+.doctor-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #E6A23C;
+  font-weight: 600;
+  margin-bottom: 4px;
+  padding-left: 4px;
+  .el-icon { font-size: 12px; }
 }
 
 /* Markdown 渲染 */

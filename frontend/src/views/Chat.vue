@@ -1,12 +1,30 @@
 <template>
   <div class="chat-page page-container">
+    <PageHero
+      badge="多轮对话 · 知识库参考 · 紧急度自动识别"
+      title="智能问诊"
+      subtitle="描述您的不适,AI 多轮追问后给出可能病因、推荐科室与自我护理建议。"
+      :icon="ChatLineSquare"
+      :variant="1"
+    />
+
     <el-card shadow="never" class="chat-card">
       <!-- 顶部信息 -->
       <div class="chat-header">
         <div>
           <h3>
             <el-icon><ChatLineSquare /></el-icon>
-            {{ chatStore.currentConsultation?.chief_complaint || '新问诊' }}
+            <el-tooltip
+              v-if="chatStore.currentConsultation?.chief_complaint"
+              :content="chatStore.currentConsultation.chief_complaint"
+              placement="bottom"
+              :show-after="300"
+            >
+              <span class="truncate-title">
+                {{ truncatedChiefComplaint }}
+              </span>
+            </el-tooltip>
+            <span v-else>新问诊</span>
           </h3>
           <div class="meta" v-if="chatStore.currentConsultation">
             <el-tag size="small" :type="urgencyType(chatStore.currentConsultation.urgency_level)">
@@ -41,13 +59,28 @@
             v-for="msg in chatStore.messages"
             :key="msg.id"
             class="chat-message"
-            :class="msg.role === 'user' ? 'user' : 'ai'"
+            :class="msg.role === 'user' ? 'user' : (msg.role === 'doctor' ? 'doctor' : 'ai')"
           >
-            <div class="chat-avatar" :class="msg.role === 'user' ? 'user' : 'ai'">
-              <el-icon :size="20"><component :is="msg.role === 'user' ? 'User' : 'FirstAidKit'" /></el-icon>
+            <div
+              class="chat-avatar"
+              :class="msg.role === 'user' ? 'user' : (msg.role === 'doctor' ? 'doctor' : 'ai')"
+            >
+              <el-icon :size="20">
+                <component
+                  :is="msg.role === 'user' ? 'User' : (msg.role === 'doctor' ? 'UserFilled' : 'FirstAidKit')"
+                />
+              </el-icon>
             </div>
             <div>
-              <div class="chat-bubble" :class="msg.role === 'user' ? 'user' : 'ai'">
+              <!-- 医生回复:气泡上方加身份标识 -->
+              <div v-if="msg.role === 'doctor'" class="doctor-tag">
+                <el-icon><UserFilled /></el-icon>
+                医生回复
+              </div>
+              <div
+                class="chat-bubble"
+                :class="msg.role === 'user' ? 'user' : (msg.role === 'doctor' ? 'doctor' : 'ai')"
+              >
                 <!-- 紧急提示 -->
                 <div v-if="msg.urgency_level && msg.urgency_level >= 4" class="emergency-alert">
                   <el-icon><WarningFilled /></el-icon>
@@ -55,8 +88,11 @@
                 </div>
                 <!-- 内容(Markdown 渲染) -->
                 <div class="markdown-body" v-html="renderMarkdown(msg.content)"></div>
-                <!-- 知识来源 -->
-                <div v-if="msg.source_knowledge && msg.source_knowledge.length" class="knowledge-sources">
+                <!-- 知识来源(仅 AI 消息显示;医生回复不再标注参考) -->
+                <div
+                  v-if="msg.role !== 'doctor' && msg.source_knowledge && msg.source_knowledge.length"
+                  class="knowledge-sources"
+                >
                   <div class="source-title">📚 参考医学知识</div>
                   <div
                     v-for="(src, i) in msg.source_knowledge"
@@ -126,7 +162,7 @@
           show-icon
         >
           <div style="font-size: 12px; color: #606266">
-            主诉输入框已自动填入报告内容,直接点"开始"即可
+            完整报告已附加在主诉中,直接点"开始"即可
           </div>
         </el-alert>
 
@@ -137,6 +173,18 @@
             :rows="6"
             placeholder="请用一两句话描述您的主要不适,例如:头痛 3 天,伴有低烧"
           />
+        </el-form-item>
+
+        <!-- OCR 报告内容预览(可折叠) -->
+        <el-form-item v-if="pendingContext" label="报告预览">
+          <div class="ocr-preview">
+            <el-button type="primary" link size="small" @click="showOcrPreview = !showOcrPreview">
+              <el-icon><component :is="showOcrPreview ? 'View' : 'Hide'" /></el-icon>
+              {{ showOcrPreview ? '收起完整内容' : '展开查看完整报告' }}
+              ({{ pendingContext.content.length }} 字)
+            </el-button>
+            <pre v-show="showOcrPreview" class="ocr-content">{{ pendingContext.content }}</pre>
+          </div>
         </el-form-item>
         <el-form-item label="示例">
           <div class="examples">
@@ -261,6 +309,7 @@ import { marked } from 'marked'
 import { useChatStore } from '@/stores/chat'
 import { agentApi } from '@/api/agent'
 import { knowledgeApi } from '@/api/knowledge'
+import PageHero from '@/components/PageHero.vue'
 
 const route = useRoute()
 const chatStore = useChatStore()
@@ -282,13 +331,26 @@ const examples = [
 // OCR / 报告上下文(从 OCR 页跳过来时携带)
 const pendingContext = computed(() => chatStore.pendingContext)
 const showContextBanner = ref(false)
+const showOcrPreview = ref(false)  // 展开/收起完整报告预览
 watch(pendingContext, (v) => {
   if (v) {
     showContextBanner.value = true
-    // 自动填入主诉
-    startForm.value.complaint = v.content
+    // 主诉框 = 短标题(给用户直接看到),但实际上传给后端的是完整内容
+    // 这样:
+    //  - 顶部标题干净(短标题)
+    //  - 主诉框不撑爆(短标题)
+    //  - 完整报告 = 完整内容,作为后端 chief_complaint 入库
+    //  - AI 拿到完整上下文
+    startForm.value.complaint = v.title || v.content
+    showOcrPreview.value = false  // 默认折叠
   }
 }, { immediate: true })
+
+// 标题过长截断显示(> 30 字加尾缀)
+const truncatedChiefComplaint = computed(() => {
+  const c = chatStore.currentConsultation?.chief_complaint || ''
+  return c.length > 30 ? c.slice(0, 30) + '...' : c
+})
 
 const messageCount = computed(() => chatStore.messages.length)
 
@@ -340,7 +402,11 @@ const handleStart = async () => {
   if (!startForm.value.complaint.trim()) return
   showStart.value = false
   try {
-    await chatStore.startConsultation(startForm.value.complaint.trim())
+    // chief_complaint 取完整报告(让 AI 有完整上下文)
+    // 顶部标题显示是后端返回的 chief_complaint,我们已在前端用 tooltip + 截断双管齐下
+    const chiefComplaint = chatStore.pendingContext?.content
+      || startForm.value.complaint.trim()
+    await chatStore.startConsultation(chiefComplaint)
     startForm.value.complaint = ''
     // 启动后清掉 pendingContext(已用完)
     chatStore.pendingContext = null
@@ -445,6 +511,36 @@ const viewSource = async (src) => {
   gap: 12px;
   align-items: flex-end;
   :deep(.el-textarea__inner) { resize: none; }
+}
+
+// OCR 报告预览
+.ocr-preview {
+  width: 100%;
+}
+.ocr-content {
+  margin: 8px 0 0;
+  padding: 12px;
+  background: #f5f7fa;
+  border: 1px solid #ebeef5;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  max-height: 320px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #303133;
+  font-family: 'Courier New', Consolas, monospace;
+}
+
+// 顶部标题过长截断
+.truncate-title {
+  display: inline-block;
+  max-width: 600px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
 }
 
 .msg-time {

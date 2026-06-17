@@ -7,6 +7,8 @@ import * as ElIcons from '@element-plus/icons-vue'
 import App from './App.vue'
 import router from './router'
 import './styles/main.scss'
+// 全局设计 Token(含 Element Plus 主题覆盖、薄雾青主题)
+import './styles/tokens.scss'
 
 const app = createApp(App)
 

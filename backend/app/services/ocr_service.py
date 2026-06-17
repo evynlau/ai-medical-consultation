@@ -79,6 +79,7 @@ class OCRService:
         try:
             from openai import AsyncOpenAI
             from app.core.config import settings
+            from app.services.llm_service import build_thinking_disable_kwargs
 
             model = settings.OCR_VISION_MODEL or settings.OPENAI_MODEL
             logger.info(f"[OCR] 调用 vision 模型: {model} (image: {Path(file_path).stat().st_size//1024}KB)")
@@ -104,6 +105,11 @@ class OCRService:
             import asyncio
             import threading
 
+            # 注入 thinking-disable 参数(避免 OCR 输出中夹带 thinking 草稿)
+            extra_kwargs = build_thinking_disable_kwargs(
+                model_name=model, base_url=settings.OPENAI_BASE_URL, force_disable=True,
+            )
+
             result_holder = {"resp": None, "error": None}
 
             def _call():
@@ -124,6 +130,7 @@ class OCRService:
                         }],
                         temperature=0.1,
                         max_tokens=2000,
+                        **extra_kwargs,
                     ))
                 except Exception as e:
                     result_holder["error"] = e
@@ -138,6 +145,12 @@ class OCRService:
                 raise TimeoutError("vision 识别超时(180s)")
 
             text = (result_holder["resp"].choices[0].message.content or "").strip()
+            # 兜底清洗:剥掉 thinking 残留(防御性,即便已经 disable_thinking 也要保险)
+            try:
+                from app.services.llm_service import LLMService
+                text = LLMService._clean_reply(text)
+            except Exception:
+                pass
             return {
                 "engine": f"vision:{model}",
                 "raw_text": text,

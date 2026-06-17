@@ -1,6 +1,14 @@
 <!-- Imaging/Analysis.vue - torchxrayvision 多分类胸片分析 -->
 <template>
   <div class="imaging-analysis page-container">
+    <PageHero
+      badge="18 维病理 · Grad-CAM 可视化"
+      title="胸片分析"
+      subtitle="上传胸部 X 光片,AI 给出多病种概率分布与可视化热力图,辅助医生阅片。"
+      :icon="Picture"
+      :variant="2"
+    />
+
     <el-card shadow="never" class="header-card">
       <template #header>
         <div class="card-header">
@@ -287,8 +295,13 @@
         </el-row>
       </el-card>
 
-      <!-- 医生标注 -->
-      <el-card shadow="never" class="annotation-card" style="margin-top: 24px">
+      <!-- 医生标注(仅医生 / 管理员可见) -->
+      <el-card
+        v-if="canAnnotate"
+        shadow="never"
+        class="annotation-card"
+        style="margin-top: 24px"
+      >
         <template #header>
           <h4>
             <el-icon><EditPen /></el-icon>
@@ -356,7 +369,8 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
+import { useUserStore } from '@/stores/user'
 import { ElMessage } from 'element-plus'
 import {
   Picture, Clock, Upload, Aim, DataAnalysis, EditPen,
@@ -365,6 +379,13 @@ import {
 } from '@element-plus/icons-vue'
 import { analyzePneumonia, submitAnnotation as submitAnnotationApi } from '@/api/imaging'
 import ImageViewer from '@/components/ImageViewer.vue'
+import PageHero from '@/components/PageHero.vue'
+
+const userStore = useUserStore()
+const canAnnotate = computed(() => userStore.isDoctor || userStore.isAdmin)
+onMounted(() => {
+  if (userStore.token && !userStore.profile) userStore.fetchProfile()
+})
 
 const fileList = ref([])
 const originalImageUrl = ref('')

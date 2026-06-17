@@ -1,5 +1,13 @@
 <template>
   <div class="ocr-page page-container">
+    <PageHero
+      badge="OCR 提取 · LLM 结构化 · 一键转入问诊"
+      title="报告识别"
+      subtitle="拍照上传处方或检验报告,自动提取文字并结构化为可机读 JSON,二次解读无忧。"
+      :icon="PictureFilled"
+      :variant="3"
+    />
+
     <el-card shadow="never">
       <template #header>
         <div class="card-header">
@@ -290,10 +298,11 @@
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ChatLineSquare, DocumentCopy } from '@element-plus/icons-vue'
+import { ChatLineSquare, DocumentCopy, PictureFilled } from '@element-plus/icons-vue'
 import { ocrApi } from '@/api/ocr'
 import { useChatStore } from '@/stores/chat'
 import { useRouter } from 'vue-router'
+import PageHero from '@/components/PageHero.vue'
 
 const imageType = ref('auto')
 const selectedFile = ref(null)
@@ -311,6 +320,19 @@ const chatStore = useChatStore()
 
 const typeLabel = (t) => ({ prescription: '处方', report: '报告', other: '其他', auto: '自动' }[t] || t)
 const formatTime = (iso) => iso ? new Date(iso).toLocaleString('zh-CN', { hour12: false }) : '-'
+
+/** 为 OCR 报告生成简短标题(用于 chief_complaint)
+ *  - 避免顶部标题被全文报告撑爆
+ *  - 最多 30 字
+ */
+const buildShortTitle = (patient, docType, abnormalItems) => {
+  const name = patient?.name || '患者'
+  const abnormalCount = (abnormalItems || []).length
+  if (abnormalCount > 0) {
+    return `请解读${name}的${docType}(${abnormalCount} 项异常)`
+  }
+  return `请解读${name}的${docType}`
+}
 
 // 异常项数量
 const abnormalCount = computed(() => {
@@ -481,42 +503,47 @@ const startConsultFromOcr = async () => {
   const docType = sd.document_type === 'prescription' ? '处方' : '检验报告'
 
   // 构造主诉:结构化字段 + 原文 fallback
-  let complaint = `我刚做完检查,这是${docType}内容,请帮我分析。\n\n`
-  if (patient.name) complaint += `【患者】${patient.name} ${patient.gender || ''} ${patient.age || ''}岁\n`
-  if (sd.hospital) complaint += `【医院】${sd.hospital} ${sd.department || ''}\n`
-  if (sd.date) complaint += `【日期】${sd.date}\n`
-  if (diagnosis.length) complaint += `【临床诊断】${diagnosis.join('、')}\n`
+  let fullContext = `我刚做完检查,这是${docType}内容,请帮我分析。\n\n`
+  if (patient.name) fullContext += `【患者】${patient.name} ${patient.gender || ''} ${patient.age || ''}岁\n`
+  if (sd.hospital) fullContext += `【医院】${sd.hospital} ${sd.department || ''}\n`
+  if (sd.date) fullContext += `【日期】${sd.date}\n`
+  if (diagnosis.length) fullContext += `【临床诊断】${diagnosis.join('、')}\n`
   if (abnormalItems.length) {
-    complaint += `\n【异常指标】\n`
+    fullContext += `\n【异常指标】\n`
     abnormalItems.forEach(item => {
       const flag = item.abnormal === 'high' ? '↑' : '↓'
-      complaint += `  • ${item.name}: ${item.result} ${item.unit || ''} ${flag} (参考 ${item.reference_range || '-'})\n`
+      fullContext += `  • ${item.name}: ${item.result} ${item.unit || ''} ${flag} (参考 ${item.reference_range || '-'})\n`
     })
   }
-  if (sd.summary) complaint += `\n【AI 初步总结】${sd.summary}\n`
+  if (sd.summary) fullContext += `\n【AI 初步总结】${sd.summary}\n`
   if (meds.length) {
-    complaint += `\n【用药】${meds.map(m => m.name).join('、')}\n`
+    fullContext += `\n【用药】${meds.map(m => m.name).join('、')}\n`
   }
 
   // **关键 fallback**:如果结构化数据几乎没有,把 OCR 原文也带上
   const hasStructured = patient.name || diagnosis.length || abnormalItems.length || sd.summary
   if (!hasStructured && result.value.raw_text) {
-    complaint += `\n【报告/处方原文】\n${result.value.raw_text}\n`
+    fullContext += `\n【报告/处方原文】\n${result.value.raw_text}\n`
   }
 
-  complaint += `\n请结合以上${docType},告诉我:\n1. 这些异常指标意味着什么?\n2. 需要进一步做什么检查?\n3. 日常生活需要注意什么?`
+  fullContext += `\n请结合以上${docType},告诉我:\n1. 这些异常指标意味着什么?\n2. 需要进一步做什么检查?\n3. 日常生活需要注意什么?`
 
   // 长度预警
-  if (complaint.length > 9000) {
-    ElMessage.warning(`主诉内容较长(${complaint.length} 字符),部分内容可能被截断`)
+  if (fullContext.length > 9000) {
+    ElMessage.warning(`报告内容较长(${fullContext.length} 字符),将以"详情"形式追加`)
   }
 
-  // 存到 chat store
+  // **短标题**:用于 chief_complaint,避免顶部标题被全文撑爆
+  // 例如 "请解读李四的检验报告(4 项异常)"
+  const shortTitle = buildShortTitle(patient, docType, abnormalItems)
+
+  // 存到 chat store:title = 短标题(content 仍存完整内容)
   chatStore.pendingContext = {
     type: 'ocr_report',
     ocrId: result.value.id,
     summary: `${patient.name || '患者'}的${docType}`,
-    content: complaint,
+    title: shortTitle,
+    content: fullContext,
   }
 
   ElMessage.success('正在跳转到问诊,报告内容已自动填入...')

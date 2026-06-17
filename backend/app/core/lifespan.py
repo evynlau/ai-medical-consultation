@@ -10,32 +10,27 @@ from app.utils.logger import logger
 
 
 async def warmup_rag():
-    """启动时预热:从 DB 加载知识构建索引"""
+    """启动时加载 RAG 索引(只读盘,从不向量化)
+
+    设计:
+    - 启动期只做"加载磁盘索引"(< 100ms),不做任何 embedding 计算
+    - 如果磁盘无索引 → index 为空,搜索会返回空,直到管理员手动触发重建
+    - 向量化迁移到管理端 /admin/knowledge-index 页面显式触发
+    - 理由:启动期向量化(5+ 分钟)会拖慢服务启动、影响使用
+    """
     try:
-        from sqlalchemy import select
-        from app.core.database import AsyncSessionLocal
-        from app.models.knowledge import Knowledge
-
-        async with AsyncSessionLocal() as db:
-            rows = (await db.execute(select(Knowledge))).scalars().all()
-            documents = [
-                {
-                    "id": kb.id,
-                    "title": kb.title,
-                    "content": kb.content,
-                    "category": kb.category,
-                    "tags": kb.tags or "",
-                    "source": kb.source or "",
-                }
-                for kb in rows
-            ]
-
         rag = get_rag_service()
         rag.initialize()
-        if documents and (rag.index is None or rag.index.ntotal == 0):
-            rag.build_index(documents)
-            logger.info(f"✅ 启动时构建 RAG 索引:{len(documents)} 条")
+        if rag.index is not None and rag.index.ntotal > 0:
+            sig_short = (rag._saved_signature or "<旧版无签名>")[:12]
+            logger.info(
+                f"✅ RAG 索引已加载:{rag.index.ntotal} 条 "
+                f"(签名 {sig_short}...,启动期不做向量化)"
+            )
         else:
-            logger.info(f"✅ RAG 索引已就绪:{rag.index.ntotal if rag.index else 0} 条")
+            logger.warning(
+                "⚠️  RAG 索引为空(磁盘无 index.faiss),"
+                "搜索将返回空结果 — 请在管理端 /admin/knowledge-index 触发「重建索引」"
+            )
     except Exception as e:
-        logger.exception(f"RAG 预热失败: {e}")
+        logger.exception(f"RAG 索引加载失败: {e}")

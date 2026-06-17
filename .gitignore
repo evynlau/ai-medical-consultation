@@ -74,6 +74,19 @@ backend/data/chest_xray/ # 影像数据集(本地运行时下载)
 backend/checkpoints/*.pth # 模型权重(体积大,不入库)
 backend/checkpoints/*.onnx
 
+# 运行时数据(根目录 data/,本地生成不入库)
+/data/
+data/*.db
+data/*.db-journal
+/data/faiss_index/
+/data/chest_xray/        # 下载的胸片数据集
+/data/ocr_uploads/
+
+# mobile 输出(已编译/已下载,不入库)
+mobile/dist/
+mobile/output/
+mobile/unpackage/
+
 # 上传的医学图片(若以后有)
 *.png
 *.jpg

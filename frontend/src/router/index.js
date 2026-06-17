@@ -6,7 +6,7 @@ const routes = [
     path: '/',
     name: 'home',
     component: () => import('@/views/Home.vue'),
-    meta: { title: 'AI 智能问诊 - 首页' }
+    meta: { title: 'Sora 米医' }
   },
   {
     path: '/chat',
@@ -51,6 +51,19 @@ const routes = [
     component: () => import('@/views/Imaging/History.vue'),
     meta: { title: '影像分析历史', auth: true }
   },
+  // ============== 名医录(患者端) ==============
+  {
+    path: '/doctors',
+    name: 'doctors',
+    component: () => import('@/views/Doctors/List.vue'),
+    meta: { title: '名医录' }
+  },
+  {
+    path: '/doctors/:id',
+    name: 'doctor-detail',
+    component: () => import('@/views/Doctors/Detail.vue'),
+    meta: { title: '名医详情' }
+  },
   {
     path: '/login',
     name: 'login',
@@ -67,6 +80,8 @@ const routes = [
       { path: 'consultations', component: () => import('@/views/admin/Consultations.vue'), meta: { title: '问诊管理' } },
       { path: 'emergency', component: () => import('@/views/admin/Emergency.vue'), meta: { title: '紧急看板' } },
       { path: 'knowledge', component: () => import('@/views/admin/KnowledgeAdmin.vue'), meta: { title: '知识库管理' } },
+      { path: 'knowledge-index', component: () => import('@/views/admin/KnowledgeIndex.vue'), meta: { title: '知识库索引' } },
+      { path: 'doctors', component: () => import('@/views/admin/Doctors.vue'), meta: { title: '名医录管理' } },
       { path: 'users', component: () => import('@/views/admin/Users.vue'), meta: { title: '用户管理' } },
       { path: 'imaging', component: () => import('@/views/Imaging/History.vue'), meta: { title: '影像分析管理' } }
     ]
@@ -83,7 +98,7 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to, from, next) => {
-  document.title = to.meta.title || 'AI 智能问诊系统'
+  document.title = to.meta.title || 'Sora 米医'
 
   // 需登录
   if (to.meta.auth && !localStorage.getItem('token')) {

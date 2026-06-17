@@ -23,6 +23,14 @@
           <el-icon><Reading /></el-icon>
           <span>知识库</span>
         </el-menu-item>
+        <el-menu-item index="/admin/knowledge-index">
+          <el-icon><Cpu /></el-icon>
+          <span>知识库索引</span>
+        </el-menu-item>
+        <el-menu-item index="/admin/doctors">
+          <el-icon><UserFilled /></el-icon>
+          <span>名医录</span>
+        </el-menu-item>
         <el-menu-item index="/admin/users">
           <el-icon><User /></el-icon>
           <span>用户管理</span>
@@ -74,6 +82,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { Cpu } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { adminApi } from '@/api/admin'
 

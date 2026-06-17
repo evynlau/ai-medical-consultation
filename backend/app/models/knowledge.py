@@ -21,3 +21,6 @@ class Knowledge(Base):
     source: Mapped[str | None] = mapped_column(String(255), default=None)  # 来源文档名
     extra: Mapped[Any | None] = mapped_column(JSON, default=None)  # 额外元数据(科室/症状等)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )

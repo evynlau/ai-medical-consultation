@@ -15,7 +15,9 @@ from app.models.user import User
 from app.models.imaging import ImagingAnalysis, DoctorAnnotation
 from app.api.deps import get_doctor_user, get_admin_user, get_current_user
 from app.services.imaging import get_xrv_service
+from app.services.imaging.validation import validate_chest_xray
 from app.utils.logger import logger
+from app.core.config import settings
 
 router = APIRouter()
 
@@ -72,7 +74,7 @@ async def analyze_pneumonia(
     target_classes: str = Form("", description="要生成热力图的病理,逗号分隔,留空=所有阳性+肺炎"),
     apply_lung_mask: bool = Form(True, description="是否用 PSPNet 限制热力图到双肺内"),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_doctor_user),
+    user: User = Depends(get_current_user),  # 改为 get_current_user(登录用户即可)
 ):
     """torchxrayvision 多分类胸片分析
 
@@ -90,6 +92,52 @@ async def analyze_pneumonia(
 
     # 解析 target_classes
     requested = [c.strip() for c in target_classes.split(",") if c.strip()] or None
+
+    # 验证上传图片是否为胸片(PSPNet 肺部分割法,完全本地、不依赖视觉 LLM)
+    if settings.IMAGING_VALIDATION.lower() in ("true", "1", "on", "auto"):
+        try:
+            service = get_xrv_service()
+            from PIL import Image
+            import io
+            img = Image.open(io.BytesIO(contents))
+            lung_mask = service._segment_lungs(img)
+            if lung_mask is None:
+                # PSPNet 不可用(模型未加载),跳过
+                validation = {
+                    "skipped": True, "is_chest_xray": True, "confidence": 0.0,
+                    "reason": "PSPNet unavailable", "view": "unknown", "engine": "pspnet",
+                }
+            else:
+                # 算双肺区域占比
+                lung_ratio = float(lung_mask.sum()) / float(lung_mask.size)
+                MIN_LUNG_RATIO = 0.005  # 0.5% (真胸片通常 8-25%)
+                is_cxr = lung_ratio >= MIN_LUNG_RATIO
+                validation = {
+                    "skipped": False,
+                    "is_chest_xray": bool(is_cxr),
+                    "confidence": min(1.0, max(0.0, lung_ratio * 10)),
+                    "reason": f"PSPNet 肺野占比 {lung_ratio*100:.2f}%" + ("" if is_cxr else " (低于阈值 0.5%,可能不是胸片)"),
+                    "view": "unknown",
+                    "engine": "pspnet",
+                }
+                if not is_cxr:
+                    raise HTTPException(
+                        422,
+                        f"上传图片可能不是胸片:PSPNet 未能识别到双肺区域(肺野占比仅 {lung_ratio*100:.2f}%,正常胸片通常 8-25%)。请上传胸片 X-ray。",
+                    )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.warning(f"[ImagingValidation] PSPNet 验证失败,放行: {e}")
+            validation = {
+                "skipped": True, "is_chest_xray": True, "confidence": 0.0,
+                "reason": f"validation error: {e}", "view": "unknown", "engine": "error",
+            }
+    else:
+        validation = {
+            "skipped": True, "is_chest_xray": True, "confidence": 0.0,
+            "reason": "validation disabled", "view": "unknown", "engine": "none",
+        }
 
     try:
         service = get_xrv_service()
@@ -139,6 +187,7 @@ async def analyze_pneumonia(
         "lung_mask_applied": result.get("lung_mask_applied", False),
         "threshold_source": result.get("threshold_source", "xrv 官方"),
         "target_classes": requested or [],
+        "validation": validation,  # 胸片内容验证结果(view/confidence/reason/engine)
         "warnings": [
             "本结果仅供医生参考,不作为最终诊断依据",
             "请结合临床症状和其他检查综合判断",

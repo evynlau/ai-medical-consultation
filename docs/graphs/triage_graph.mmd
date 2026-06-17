@@ -1,0 +1,24 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	detect_emergency(detect_emergency)
+	retrieve_knowledge(retrieve_knowledge)
+	format_knowledge(format_knowledge)
+	build_messages(build_messages)
+	llm_invoke(llm_invoke)
+	parse_and_attach(parse_and_attach)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> detect_emergency;
+	build_messages --> llm_invoke;
+	detect_emergency --> retrieve_knowledge;
+	format_knowledge --> build_messages;
+	llm_invoke --> parse_and_attach;
+	retrieve_knowledge --> format_knowledge;
+	parse_and_attach --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc

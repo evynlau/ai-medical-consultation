@@ -1,0 +1,15 @@
+node_modules/
+unpackage/
+dist/
+output/
+*.log
+*.apk
+*.aab
+.git/
+.idea/
+.vscode/
+.DS_Store
+README.md
+BUILD.md
+Dockerfile
+.dockerignore

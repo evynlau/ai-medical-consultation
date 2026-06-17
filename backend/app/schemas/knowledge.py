@@ -26,7 +26,9 @@ class KnowledgeOut(BaseModel):
 
 
 class KnowledgeSearchResult(BaseModel):
-    id: int
+    # RAG 索引里 3 类文档统一编码: kb_6(知识库) / dr_5(医生) / file_阿司匹林.md(知识库 .md)
+    # 前端拿到字符串 ID 直接传回 /knowledge/{id},后端 get_knowledge 会兼容 kb_xxx 格式
+    id: str
     title: str
     category: str
     content: str

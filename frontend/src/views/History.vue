@@ -1,5 +1,13 @@
 <template>
   <div class="history page-container">
+    <PageHero
+      badge="问诊回看 · 一键续聊 · 完整对话存档"
+      title="问诊记录"
+      subtitle="所有历史问诊会话,点开即可继续追问或回顾完整对话。"
+      :icon="Clock"
+      :variant="4"
+    />
+
     <el-card shadow="never">
       <template #header>
         <div class="card-header">
@@ -68,8 +76,10 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { Clock } from '@element-plus/icons-vue'
 import { useChatStore } from '@/stores/chat'
 import { consultApi } from '@/api/consult'
+import PageHero from '@/components/PageHero.vue'
 
 const router = useRouter()
 const chatStore = useChatStore()

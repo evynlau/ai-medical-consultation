@@ -1,0 +1,178 @@
+/* ============================================================
+   AI 智能问诊系统 — 全局设计 Token
+   ------------------------------------------------------------
+   主题:温煦 C 端医疗 AI 助手
+   调性:柔和、有温度、克制的医疗青绿、专业可信
+
+   使用方式:
+     Vue 组件 <style lang="scss"> 中:
+       @use '@/styles/tokens.scss' as t;
+       .demo { color: t.c('primary-500'); padding: t.sp(4); }
+
+   主色:薄雾青 #4FB3A9(青绿,医学+自然)
+   ============================================================ */
+
+:root {
+  /* === 主色:薄雾青(青绿) === */
+  --c-primary-50:  #E6F4F2;
+  --c-primary-100: #C2E5E0;
+  --c-primary-300: #7BC8BF;
+  --c-primary-500: #4FB3A9;
+  --c-primary-600: #3A8C84;
+  --c-primary-700: #2A6862;
+  --c-primary-900: #163B37;
+
+  /* === 辅色:暖白 / 暖灰(纸张感) === */
+  --c-bg-soft:    #FAF7F2;
+  --c-bg:         #F5F2EC;
+  --c-surface:    #FFFFFF;
+  --c-text-1:     #2A2926;
+  --c-text-2:     #5C5A56;
+  --c-text-3:     #8A8884;
+  --c-border:     #ECE7DE;
+
+  /* === 强调:暖橙(温和警示) === */
+  --c-warn-50:  #FCF1E8;
+  --c-warn-500: #E89B6C;
+  --c-warn-700: #B26A3D;
+
+  /* === 状态 === */
+  --c-success: #5BA882;
+  --c-danger:  #D8746A;
+  --c-info:    #6E8AB0;
+
+  /* === 字体 === */
+  --font-sans:  -apple-system, BlinkMacSystemFont, "PingFang SC",
+                "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  --font-serif: "Source Han Serif SC", "Songti SC", "STSong", serif;
+  --font-mono:  "JetBrains Mono", "Fira Code", Consolas, monospace;
+
+  /* === 字号阶 === */
+  --fs-12: 12px;  --fs-13: 13px;  --fs-14: 14px;  --fs-16: 16px;
+  --fs-18: 18px;  --fs-20: 20px;  --fs-24: 24px;  --fs-28: 28px;
+  --fs-32: 32px;  --fs-40: 40px;  --fs-48: 48px;  --fs-56: 56px;
+
+  /* === 字重 === */
+  --fw-regular:  400;
+  --fw-medium:   500;
+  --fw-semibold: 600;
+  --fw-bold:     700;
+
+  /* === 间距(4px 基线) === */
+  --sp-1:  4px;  --sp-2:  8px;  --sp-3:  12px; --sp-4:  16px;
+  --sp-5:  20px; --sp-6:  24px; --sp-8:  32px; --sp-10: 40px;
+  --sp-12: 48px; --sp-14: 56px; --sp-16: 64px; --sp-20: 80px;
+  --sp-24: 96px; --sp-32: 128px;
+
+  /* === 圆角 === */
+  --r-sm:   6px;
+  --r-md:   12px;
+  --r-lg:   16px;
+  --r-xl:   24px;
+  --r-2xl:  32px;
+  --r-full: 9999px;
+
+  /* === 阴影(多层柔和) === */
+  --shadow-xs: 0 1px 2px rgba(42, 41, 38, 0.04);
+  --shadow-sm: 0 2px 8px rgba(42, 41, 38, 0.06),
+               0 1px 2px rgba(42, 41, 38, 0.04);
+  --shadow-md: 0 8px 24px rgba(42, 41, 38, 0.08),
+               0 2px 6px rgba(42, 41, 38, 0.04);
+  --shadow-lg: 0 16px 40px rgba(42, 41, 38, 0.10),
+               0 4px 12px rgba(42, 41, 38, 0.06);
+  --shadow-glow: 0 0 60px rgba(79, 179, 169, 0.30);
+
+  /* === 动效 === */
+  --ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast: 150ms;
+  --dur-base: 240ms;
+  --dur-slow: 400ms;
+
+  /* ============================================================
+     Element Plus 主题覆盖(所有 el-* 组件自动跟随新色)
+     ============================================================ */
+  --el-color-primary:           var(--c-primary-500);
+  --el-color-primary-light-3:   var(--c-primary-300);
+  --el-color-primary-light-5:   var(--c-primary-300);
+  --el-color-primary-light-7:   var(--c-primary-100);
+  --el-color-primary-light-8:   var(--c-primary-50);
+  --el-color-primary-light-9:   var(--c-primary-50);
+  --el-color-primary-dark-2:    var(--c-primary-700);
+  --el-color-success:           var(--c-success);
+  --el-color-warning:           var(--c-warn-500);
+  --el-color-danger:            var(--c-danger);
+  --el-color-info:              var(--c-info);
+  --el-border-radius-base:      var(--r-lg);
+  --el-border-radius-small:     var(--r-sm);
+}
+
+/* ============================================================
+   全局微动效(给 Vue 组件复用)
+   ============================================================ */
+
+@keyframes pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(91, 168, 130, 0.7); }
+  70%  { box-shadow: 0 0 0 8px rgba(91, 168, 130, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(91, 168, 130, 0); }
+}
+
+@keyframes pulse-warn {
+  0%   { box-shadow: 0 0 0 0 rgba(232, 155, 108, 0.6); }
+  70%  { box-shadow: 0 0 0 8px rgba(232, 155, 108, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(232, 155, 108, 0); }
+}
+
+@keyframes float {
+  0%, 100% { transform: scale(1) translateY(0); }
+  50%      { transform: scale(1.04) translateY(-6px); }
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ============================================================
+   SCSS 函数别名(给 <style lang="scss"> 用)
+   ============================================================ */
+
+// 拿主色  c('primary-500')  ->  var(--c-primary-500)
+@function c($name) {
+  @return var(--c-#{$name});
+}
+
+// 拿间距  sp(4)  ->  var(--sp-4)
+@function sp($n) {
+  @return var(--sp-#{$n});
+}
+
+// 拿圆角  r(md)  ->  var(--r-md)
+@function r($name) {
+  @return var(--r-#{$name});
+}
+
+// 拿阴影  shadow('sm')  ->  var(--shadow-sm)
+@function shadow($name) {
+  @return var(--shadow-#{$name});
+}
+
+// 拿字号  fs(16)  ->  var(--fs-16)
+@function fs($n) {
+  @return var(--fs-#{$n});
+}
+
+// 拿字体  font('serif')  ->  var(--font-serif)
+@function font($name) {
+  @return var(--font-#{$name});
+}
+
+// 拿动效时长  dur('base')  ->  var(--dur-base)
+@function dur($name) {
+  @return var(--dur-#{$name});
+}
+
+// 拿缓动  ease('out')  ->  var(--ease-out)
+@function ease($name) {
+  @return var(--ease-#{$name});
+}

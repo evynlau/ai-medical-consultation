@@ -31,9 +31,17 @@ class Settings(BaseSettings):
     EMBEDDING_PROVIDER: str = "mock"
     EMBEDDING_MODEL: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     EMBEDDING_DIM: int = 384
+    # Embedding 独立 base_url/api_key(可与 LLM 分离,避免走收费 API)
+    # 留空则复用 OPENAI_BASE_URL / OPENAI_API_KEY
+    EMBEDDING_BASE_URL: str = ""
+    EMBEDDING_API_KEY: str = ""
 
     RAG_TOP_K: int = 5
     RAG_SCORE_THRESHOLD: float = 0.2
+    # 重建索引时单次向量化允许的最大耗时(秒)。默认 86400s = 24 小时,
+    # 实际接近"不限制",知识库持续增长也不会超时中断。
+    # 想要旧行为可调小,例如 600 = 10 分钟。
+    EMBED_TIMEOUT: int = 86400
 
     CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:3000"]
 
@@ -43,6 +51,10 @@ class Settings(BaseSettings):
     # 影像分析配置
     PNEUMONIA_MODEL_PATH: str = "./checkpoints/pneumonia_resnet50.pth"
     IMAGING_MAX_FILE_SIZE_MB: int = 10
+    # 上传图片是否必须是胸片(LLM vision 验证)。auto=有 vision LLM 时启用,mock 模式不启用
+    IMAGING_VALIDATION: str = "auto"
+    # 验证用的视觉模型(留空跟随 OCR_VISION_MODEL 或 OPENAI_MODEL)
+    IMAGING_VALIDATION_MODEL: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

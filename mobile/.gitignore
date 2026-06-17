@@ -1,0 +1,24 @@
+# HBuilderX 项目
+unpackage/
+node_modules/
+dist/
+
+# 日志
+*.log
+npm-debug.log*
+
+# 临时
+.DS_Store
+.idea/
+.vscode/
+
+# 用户配置(每个人本地不同)
+.hbuilderx/
+
+# 打包产物
+*.apk
+*.aab
+*.ipa
+
+# 测试
+coverage/

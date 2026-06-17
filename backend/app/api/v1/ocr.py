@@ -188,7 +188,13 @@ async def _structure_with_llm(llm, raw_text: str, image_type: str) -> dict:
         {"role": "system", "content": "你是医学文本结构化助手。只输出严格 JSON,不要任何解释文字。"},
         {"role": "user", "content": prompt},
     ]
-    result_text = await llm.chat(messages, temperature=0.1, max_tokens=1500)
+    result_text = await llm.chat(messages, temperature=0.1, max_tokens=1500, disable_thinking=True)
+    # 防御性清洗:即便 disable_thinking 已注入,部分模型仍可能夹带 think/reasoning 标签
+    try:
+        from app.services.llm_service import LLMService
+        result_text = LLMService._clean_reply(result_text)
+    except Exception:
+        pass
 
     # 解析
     import json

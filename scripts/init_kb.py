@@ -1,11 +1,16 @@
 """初始化知识库:把 knowledge_base/ 下的 Markdown 灌入数据库 + 构建向量索引"""
 import asyncio
+import os
 import sys
 from pathlib import Path
 
 # 把 backend 加入路径
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "backend"))
+
+# 切到 backend 目录,这样 pydantic-settings 能找到 backend/.env
+# (SettingsConfigDict(env_file=".env") 是相对 cwd 的;不切会读到错误的 .env 或漏读)
+os.chdir(ROOT / "backend")
 
 from app.core.database import init_db, AsyncSessionLocal
 from app.models.knowledge import Knowledge
@@ -97,13 +102,22 @@ async def main():
 
         await db.commit()
 
-    # 构建索引
-    if documents:
-        logger.info(f"构建向量索引,共 {len(documents)} 条...")
+    # 构建索引(全量重建,避免只对新增条目索引导致漏检已存在但被外部修改的内容)
+    logger.info("构建向量索引(全量,从数据库读取)...")
+    async with AsyncSessionLocal() as db:
+        all_rows = (await db.execute(select(Knowledge))).scalars().all()
+        all_docs = [
+            {
+                "id": r.id, "title": r.title, "content": r.content,
+                "category": r.category, "tags": r.tags or "", "source": r.source or "",
+            }
+            for r in all_rows
+        ]
+    if all_docs:
         rag = get_rag_service()
-        rag.build_index(documents)
+        rag.build_index(all_docs)
     else:
-        logger.info("无新增文档,索引保持不变")
+        logger.info("数据库为空,跳过索引构建")
 
     logger.info("✅ 知识库初始化完成")
 

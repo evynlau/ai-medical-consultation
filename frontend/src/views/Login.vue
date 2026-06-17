@@ -3,7 +3,7 @@
     <el-card class="login-card" shadow="hover">
       <h2 class="title">
         <el-icon :size="32" color="#409EFF"><FirstAidKit /></el-icon>
-        AI 智能问诊系统
+        Sora 米医
       </h2>
       <p class="subtitle">{{ mode === 'login' ? '登录以使用完整功能' : '注册新账号' }}</p>
 

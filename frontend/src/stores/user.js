@@ -8,7 +8,9 @@ export const useUserStore = defineStore('user', {
   }),
   getters: {
     isLogin: (state) => !!state.token,
-    displayName: (state) => state.profile?.full_name || state.profile?.username || '访客'
+    displayName: (state) => state.profile?.full_name || state.profile?.username || '访客',
+    isDoctor: (state) => !!state.profile?.is_doctor,
+    isAdmin: (state) => !!state.profile?.is_admin,
   },
   actions: {
     async login(payload) {

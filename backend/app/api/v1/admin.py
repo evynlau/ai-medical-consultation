@@ -13,9 +13,11 @@ from app.models.user import User
 from app.models.consultation import Consultation
 from app.models.message import Message
 from app.models.knowledge import Knowledge
+from app.models.doctor import Doctor
 from app.schemas.user import UserOut, UserAdminUpdate
 from app.schemas.consultation import ConsultationListItem
 from app.schemas.knowledge import KnowledgeCreate, KnowledgeOut
+from app.schemas.doctor import DoctorCreate, DoctorOut
 from app.api.deps import get_admin_user, get_doctor_user
 from app.services.rag_service import get_rag_service
 from app.utils.logger import logger
@@ -350,13 +352,11 @@ async def admin_create_knowledge(
     admin: User = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """新增知识(管理员)"""
+    """新增知识(管理员,不再自动 reindex)"""
     kb = Knowledge(**payload.model_dump())
     db.add(kb)
     await db.commit()
     await db.refresh(kb)
-    # 重建索引
-    await _rebuild_index(db)
     return kb
 
 
@@ -374,7 +374,6 @@ async def admin_update_knowledge(
         setattr(kb, k, v)
     await db.commit()
     await db.refresh(kb)
-    await _rebuild_index(db)
     return kb
 
 
@@ -389,20 +388,25 @@ async def admin_delete_knowledge(
         raise HTTPException(404, "知识不存在")
     await db.delete(kb)
     await db.commit()
-    await _rebuild_index(db)
     return None
 
 
 @router.post("/knowledge/reindex")
-async def admin_reindex(
+async def admin_knowledge_reindex(
     admin: User = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
-    count = await _rebuild_index(db)
-    return {"message": "reindexed", "count": count}
+    """知识库 reindex(兼容旧路径,等价于 POST /admin/reindex)"""
+    return await admin_reindex(admin=admin, db=db)
 
 
-async def _rebuild_index(db: AsyncSession) -> int:
+async def _load_all_documents(db: AsyncSession) -> list:
+    """从数据库装载所有需要索引的文档(kb + 名医录 + 知识库 .md)
+    纯数据装载,不做向量化,被异步 reindex worker 调用
+    每条 document 都会带:
+      - DB 源:updated_at  (用于签名,模型 onupdate 自动维护)
+      - 文件源:mtime + size (用于签名,本地文件编辑 mtime 一定变)
+    """
     from pathlib import Path
 
     documents = []
@@ -413,6 +417,7 @@ async def _rebuild_index(db: AsyncSession) -> int:
         documents.append({
             "id": f"kb_{kb.id}", "title": kb.title, "content": kb.content,
             "category": kb.category, "tags": kb.tags or "", "source": kb.source or "",
+            "updated_at": kb.updated_at.isoformat() if kb.updated_at else "",
         })
 
     # 2. 加载知识库目录下的 .md 文件（药品、指南等）
@@ -426,12 +431,10 @@ async def _rebuild_index(db: AsyncSession) -> int:
         if md_dir.exists():
             for md_file in md_dir.glob("*.md"):
                 try:
+                    stat = md_file.stat()
                     content = md_file.read_text(encoding="utf-8")
-                    # 从文件名提取标题（去除.md后缀）
                     title = md_file.stem
-                    # 简单分类：药品为drug，指南为guideline
                     category = "drug" if md_dir == drugs_dir else "guideline"
-
                     documents.append({
                         "id": f"file_{md_file.name}",
                         "title": title,
@@ -439,9 +442,172 @@ async def _rebuild_index(db: AsyncSession) -> int:
                         "category": category,
                         "tags": "",
                         "source": md_file.name,
+                        "mtime": stat.st_mtime,
+                        "size": stat.st_size,
                     })
                 except Exception as e:
                     logger.warning(f"加载知识库文件失败 {md_file}: {e}")
 
+    # 3. 加载名医录
+    doc_rows = (await db.execute(select(Doctor))).scalars().all()
+    for d in doc_rows:
+        parts = [d.name, d.department, d.hospital]
+        if d.title: parts.append(d.title)
+        if d.diseases: parts.append(d.diseases)
+        if d.city: parts.append(d.city)
+        if d.bio: parts.append(d.bio)
+        if isinstance(d.extra, dict):
+            for k in ("address", "schedule", "specialty"):
+                v = d.extra.get(k)
+                if v: parts.append(str(v))
+        documents.append({
+            "id": f"dr_{d.id}",
+            "title": d.name,
+            "content": "。".join([p for p in parts if p]),
+            "category": "doctor",
+            "tags": d.diseases or "",
+            "source": d.hospital,
+            "updated_at": d.updated_at.isoformat() if d.updated_at else "",
+        })
+
+    return documents
+
+
+# 兼容旧调用名(给 .py 同包内残留的旧代码用),内部转发到异步 reindex
+async def _rebuild_index(db: AsyncSession) -> int:
+    """兼容旧接口:同步等待异步 reindex 完成(阻塞,慎用)。
+    新代码请用 _request_reindex_async() 或 POST /admin/reindex
+    """
+    docs = await _load_all_documents(db)
     rag = get_rag_service()
-    return rag.build_index(documents)
+    # 直接同步跑(只在 lifespan warmup 等极少数场景使用)
+    rag.build_index(docs)
+    rag.reload_from_disk()
+    return len(docs)
+
+
+# ====================== 7. 名医录管理 ======================
+
+@router.post("/doctors", response_model=DoctorOut, status_code=201)
+async def admin_create_doctor(
+    payload: DoctorCreate,
+    admin: User = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """新增医生(不再自动 reindex,需手动触发 POST /admin/reindex)"""
+    doc = Doctor(**payload.model_dump())
+    db.add(doc)
+    await db.commit()
+    await db.refresh(doc)
+    return doc
+
+
+@router.put("/doctors/{doctor_id}", response_model=DoctorOut)
+async def admin_update_doctor(
+    doctor_id: int,
+    payload: DoctorCreate,
+    admin: User = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """编辑医生(不再自动 reindex)"""
+    doc = await db.get(Doctor, doctor_id)
+    if not doc:
+        raise HTTPException(404, "医生不存在")
+    for k, v in payload.model_dump().items():
+        setattr(doc, k, v)
+    await db.commit()
+    await db.refresh(doc)
+    return doc
+
+
+@router.delete("/doctors/{doctor_id}", status_code=204)
+async def admin_delete_doctor(
+    doctor_id: int,
+    admin: User = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """删除医生(不再自动 reindex)"""
+    doc = await db.get(Doctor, doctor_id)
+    if not doc:
+        raise HTTPException(404, "医生不存在")
+    await db.delete(doc)
+    await db.commit()
+    return None
+
+
+# ====================== 8. 索引重建(异步、手动触发) ======================
+
+@router.post("/reindex")
+async def admin_reindex(
+    admin: User = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """手动触发异步 reindex。
+    立即返回,实际向量化在后台 worker 协程里跑,不阻塞本请求。
+    可通过 GET /admin/reindex/status 查询进度。
+    """
+    rag = get_rag_service()
+
+    async def _loader() -> list:
+        return await _load_all_documents(db)
+
+    # request_reindex 接受同步 loader;我们把 async loader 套一层同步壳
+    def _sync_loader():
+        # 在新线程里跑 async loader,这里用 asyncio.run 起新 loop
+        import asyncio as _asyncio
+        return _asyncio.run(_loader())
+
+    return rag.request_reindex(_sync_loader)
+
+
+@router.get("/reindex/status")
+async def admin_reindex_status(
+    admin: User = Depends(get_admin_user),
+):
+    """查询 reindex 状态(用于前端轮询)"""
+    rag = get_rag_service()
+    return rag.get_reindex_status()
+
+
+@router.get("/reindex/info")
+async def admin_reindex_info(
+    admin: User = Depends(get_admin_user),
+):
+    """查询 RAG 索引元信息(用于管理端展示)
+
+    返回:
+    - exists: 磁盘上是否有索引文件
+    - ntotal: 索引中向量条数
+    - signature: 上次构建时的文档签名(前 16 位)
+    - signature_full: 完整签名
+    - index_size_mb: 索引文件大小(MB)
+    - metadata_size_kb: metadata.json 大小(KB)
+    - mtime: 索引文件最后修改时间(ISO 格式)
+    - has_signature: 是否带签名(老版本索引没有)
+    """
+    import os
+    import time
+    from app.services.rag_service import RAGService
+
+    rag = get_rag_service()
+    # 确保加载磁盘(可能 lifespan 之后又有人 reload_from_disk)
+    if rag.index is None:
+        rag.initialize()
+
+    index_path = RAGService.INDEX_FILE
+    meta_path = RAGService.META_FILE
+    info = {
+        "exists": index_path.exists() and meta_path.exists(),
+        "ntotal": rag.index.ntotal if rag.index is not None else 0,
+        "signature": (rag._saved_signature or "")[:16],
+        "signature_full": rag._saved_signature,
+        "has_signature": bool(rag._saved_signature),
+        "index_size_mb": round(index_path.stat().st_size / 1024 / 1024, 2) if index_path.exists() else 0,
+        "metadata_size_kb": round(meta_path.stat().st_size / 1024, 2) if meta_path.exists() else 0,
+        "mtime": None,
+    }
+    if index_path.exists():
+        info["mtime"] = time.strftime(
+            "%Y-%m-%d %H:%M:%S", time.localtime(index_path.stat().st_mtime)
+        )
+    return info

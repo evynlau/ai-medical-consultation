@@ -18,13 +18,11 @@ class LLMService:
         raw = (settings.LLM_PROVIDER or "").lower().strip()
         if raw == "ollama":
             self.provider = "openai"
-            self._is_ollama = True
         else:
             self.provider = raw
-            self._is_ollama = False
         self._client = None
         # Ollama 默认配置
-        if self._is_ollama:
+        if self._is_ollama():
             if not settings.OPENAI_BASE_URL or "your-" in (settings.OPENAI_BASE_URL or "") or "api.openai.com" in settings.OPENAI_BASE_URL:
                 settings.OPENAI_BASE_URL = "http://localhost:11434/v1"
             if not settings.OPENAI_API_KEY or "your-" in settings.OPENAI_API_KEY:
@@ -40,14 +38,50 @@ class LLMService:
             )
         return self._client
 
+    # ===== Provider 特性探测 =====
+    def _is_ollama(self) -> bool:
+        """是否为 Ollama(通过 base_url 判定)"""
+        url = (settings.OPENAI_BASE_URL or "").lower()
+        return "11434" in url and "/v1" in url
+
+    def _is_minimax(self) -> bool:
+        """是否为 MiniMax API(通过 base_url 判定)"""
+        url = (settings.OPENAI_BASE_URL or "").lower()
+        return "minimaxi" in url or "minimax" in url
+
+    def _is_thinking_capable(self) -> bool:
+        """当前 provider + model 是否可能输出 thinking 字段
+        - Ollama: 多数 MoE/思考型模型(关键词)会输出 reasoning
+        - MiniMax: 默认思考,需显式 disable
+        - 其他: 保守按"会"处理
+        """
+        if self._is_ollama():
+            model = (settings.OPENAI_MODEL or "").lower()
+            # 已知的非思考型 Ollama 模型
+            non_thinking = ["gemma", "llama3.2", "qwen2.5", "mistral", "phi3"]
+            return not any(x in model for x in non_thinking)
+        if self._is_minimax():
+            return True
+        # OpenAI / 其他:保守返回 True(让清洗兜底)
+        return True
+
     async def chat(
         self,
         messages: List[Dict[str, str]],
         temperature: float = 0.5,
         max_tokens: int = 1500,
         stream: bool = False,
+        disable_thinking: Optional[bool] = None,
     ) -> str:
-        """通用聊天接口"""
+        """通用聊天接口
+        disable_thinking:
+          - None(默认): 按 provider 自动决定
+            · Ollama  → 注入 think=False(让 Ollama 跳过内部思考)
+            · MiniMax → 注入 extra_body={"thinking": {"type": "disabled"}}
+            · 其他   → 不动
+          - True:  强制关闭
+          - False: 强制开启(不传任何禁用参数)
+        """
         if self.provider == "mock":
             return self._mock_chat(messages)
 
@@ -56,8 +90,27 @@ class LLMService:
             logger.warning("[LLM] 客户端未初始化,降级到 mock")
             return self._mock_chat(messages)
 
+        # 决定是否尝试关闭思考
+        if disable_thinking is None:
+            want_disable = self._is_thinking_capable() and (self._is_ollama() or self._is_minimax())
+        else:
+            want_disable = disable_thinking and self._is_thinking_capable()
+
+        # 构造透传给 provider 的参数
+        extra_kwargs: Dict[str, Any] = {}
+        if want_disable:
+            if self._is_ollama():
+                # Ollama 0.6+ 支持 think=False 跳过 thinking
+                extra_kwargs["think"] = False
+            elif self._is_minimax():
+                # MiniMax 通过 extra_body 注入 vendor-specific 参数
+                extra_kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+
         try:
-            logger.info(f"[LLM] 调用 {self.provider} 模型: {settings.OPENAI_MODEL} @ {settings.OPENAI_BASE_URL}")
+            logger.info(
+                f"[LLM] 调用 {self.provider} 模型: {settings.OPENAI_MODEL} @ {settings.OPENAI_BASE_URL}"
+                f"{' (disable_thinking=True)' if want_disable else ''}"
+            )
             if stream:
                 return await self._stream_chat(client, messages, temperature, max_tokens)
             resp = await client.chat.completions.create(
@@ -65,6 +118,7 @@ class LLMService:
                 messages=messages,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                **extra_kwargs,
             )
 
             # 1) 正常 content
@@ -108,6 +162,19 @@ class LLMService:
         import re
         if not text:
             return text
+
+        # 0) 整段剥掉 <think>...</think> 块(Ollama 0.6+ 思考型模型会用此标签包裹 reasoning)
+        #    注意:多行、嵌套、标签对大小写、HTML 实体(&lt; 等)都处理
+        for tag in ("think", "thinking", "reasoning", "reflection"):
+            for open_tag, close_tag in (
+                (f"<{tag}>", f"</{tag}>"),
+                (f"<{tag.title()}>", f"</{tag.title()}>"),
+                (f"&lt;{tag}&gt;", f"&lt;/{tag}&gt;"),
+            ):
+                # 标准配对
+                text = re.sub(open_tag + r".*?" + close_tag, "", text, flags=re.DOTALL | re.IGNORECASE)
+                # 仅有开标签无闭标签:切掉之后
+                text = re.sub(open_tag + r".*$", "", text, flags=re.DOTALL | re.IGNORECASE)
 
         # 1) 截断"Check against Constraints"等标记
         #    注意顺序:越具体、越长的 pattern 放前面,避免短 pattern 误切
@@ -563,3 +630,44 @@ def get_llm_service() -> LLMService:
     if _llm_service is None:
         _llm_service = LLMService()
     return _llm_service
+
+
+# ========== 模块级工具函数(供 OCR / imaging / 影像验证复用) ==========
+
+def _detect_is_ollama(base_url: str = "") -> bool:
+    url = (base_url or settings.OPENAI_BASE_URL or "").lower()
+    return "11434" in url and "/v1" in url
+
+
+def _detect_is_minimax(base_url: str = "") -> bool:
+    url = (base_url or settings.OPENAI_BASE_URL or "").lower()
+    return "minimaxi" in url or "minimax" in url
+
+
+def _is_thinking_capable_model(model_name: str = "", base_url: str = "") -> bool:
+    """判断当前 model + provider 是否会输出 thinking 字段(模块级)"""
+    if _detect_is_ollama(base_url):
+        model = (model_name or settings.OPENAI_MODEL or "").lower()
+        non_thinking = ["gemma", "llama3.2", "qwen2.5", "mistral", "phi3"]
+        return not any(x in model for x in non_thinking)
+    if _detect_is_minimax(base_url):
+        return True
+    return True  # 其他保守返回 True
+
+
+def build_thinking_disable_kwargs(model_name: str = "", base_url: str = "", force_disable: bool = True) -> dict:
+    """构造用于关闭 thinking 的额外参数
+    - Ollama: think=False
+    - MiniMax: extra_body={"thinking": {"type": "disabled"}}
+    - 其他: 返回空 dict
+    返回: {**kwargs} 透传给 client.chat.completions.create()
+    """
+    if not force_disable:
+        return {}
+    if not _is_thinking_capable_model(model_name, base_url):
+        return {}
+    if _detect_is_ollama(base_url):
+        return {"think": False}
+    if _detect_is_minimax(base_url):
+        return {"extra_body": {"thinking": {"type": "disabled"}}}
+    return {}

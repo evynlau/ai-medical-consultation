@@ -11,6 +11,7 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    allowedHosts:['51srm.com','www.51srm.com'],
     host: '0.0.0.0',
     proxy: {
       '/api': {
